@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Load Balancer Simulation - Presenter</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+    <div class="container" style="margin-top: 2rem;">
+        <header>
+            <div>
+                <h1 class="text-gradient">L4 / L7 Load Balancer Simulation</h1>
+                <div class="Subheading">Live Traffic Orchestration Dashboard</div>
+            </div>
+            <div class="toggle-wrapper" id="mode-toggle">
+                <div class="toggle-option active" data-mode="L4">Layer 4 (Connection)</div>
+                <div class="toggle-option" data-mode="L7">Layer 7 (Application)</div>
+            </div>
+        </header>
+
+        <div class="dashboard-grid">
+            <div class="visualization-panel glass">
+                <canvas id="sim-canvas"></canvas>
+            </div>
+
+            <div class="config-panel glass">
+                <div class="config-section qr-container" style="margin-top: 0; padding-top: 0; background: none; border: none;">
+                    <h3 style="margin-bottom: 0.5rem; font-size: 0.9rem;">Join Simulation</h3>
+                    <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
+                        <input type="text" id="public-url-input" placeholder="Tunnel URL" style="flex:1; padding: 0.4rem; font-size: 0.8rem;">
+                        <button onclick="updatePublicUrl()" class="primary" style="padding: 0.4rem; border-radius: 4px; font-size: 0.8rem;">Update</button>
+                    </div>
+                    <img id="qr-code" src="" alt="QR Code" style="width: 120px; height: 120px;">
+                    <div style="font-size: 0.75rem;">
+                        <a id="mobile-link" class="mobile-link" href="#" target="_blank">Connect Link</a>
+                    </div>
+                </div>
+
+                <div class="config-section">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                        <h3 style="margin-bottom: 0;">Backend Servers</h3>
+                        <button onclick="resetCounters()" style="padding: 0.3rem 0.6rem; font-size: 0.7rem; background: var(--danger); border: none; color: white; border-radius: 4px; cursor: pointer;">Reset Counters</button>
+                    </div>
+                    <div class="server-list" id="server-list">
+                        <!-- Server list rendered dynamically -->
+                    </div>
+                </div>
+
+                <div class="config-section">
+                    <h3>Add Server</h3>
+                    <form class="add-server-form" id="add-server-form">
+                        <input type="text" id="srv-name" placeholder="Server Name (e.g. Server D)" required>
+                        <select id="srv-path" required>
+                            <option value="/api">/api (API Traffic)</option>
+                            <option value="/images">/images (Static Assets)</option>
+                            <option value="/video">/video (Video Stream)</option>
+                            <option value="/admin">/admin (Internal)</option>
+                            <option value="/other">/other (Wildcard)</option>
+                        </select>
+                        <button type="submit" class="primary">Deploy Server</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let currentMode = 'L4';
+        let servers = [];
+
+        // DOM Elements
+        const modeOptions = document.querySelectorAll('.toggle-option');
+        const serverListEl = document.getElementById('server-list');
+        const addServerForm = document.getElementById('add-server-form');
+        const qrCodeImg = document.getElementById('qr-code');
+        const mobileLinkA = document.getElementById('mobile-link');
+        const canvas = document.getElementById('sim-canvas');
+        const ctx = canvas.getContext('2d');
+
+        // High-DPI Canvas Support
+        function resizeCanvas() {
+            const dpr = window.devicePixelRatio || 1;
+            const rect = canvas.parentElement.getBoundingClientRect();
+            
+            canvas.width = rect.width * dpr;
+            canvas.height = rect.height * dpr;
+            
+            canvas.style.width = `${rect.width}px`;
+            canvas.style.height = `${rect.height}px`;
+            
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            
+            updateServerPositions();
+        }
+        window.addEventListener('resize', resizeCanvas);
+
+        // Animation State
+        const packets = [];
+        let lbNode = { x: 0, y: 0, w: 120, h: 60, label: "Load Balancer" };
+        let serverNodes = [];
+        
+        // Helper: Rounded Rect
+        function drawRoundedRect(x, y, w, h, r, fill, stroke, glow) {
+            ctx.save();
+            if (glow) {
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = glow;
+            }
+            ctx.beginPath();
+            ctx.moveTo(x + r, y);
+            ctx.arcTo(x + w, y, x + w, y + h, r);
+            ctx.arcTo(x + w, y + h, x, y + h, r);
+            ctx.arcTo(x, y + h, x, y, r);
+            ctx.arcTo(x, y, x + w, y, r);
+            ctx.closePath();
+            if (fill) {
+                ctx.fillStyle = fill;
+                ctx.fill();
+            }
+            if (stroke) {
+                ctx.strokeStyle = stroke;
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            }
+            ctx.restore();
+        }
+
+        // Socket Events
+        socket.on('initial_state', (data) => {
+            currentMode = data.mode;
+            servers = data.servers;
+            updateModeUI();
+            
+            if(data.qrCode) qrCodeImg.src = data.qrCode;
+            if(data.mobileUrl) {
+                mobileLinkA.href = data.mobileUrl;
+                mobileLinkA.textContent = data.mobileUrl;
+            }
+            
+            resizeCanvas(); // Trigger positions
+            renderServerList();
+        });
+
+        socket.on('url_updated', (data) => {
+            qrCodeImg.src = data.qrCode;
+            mobileLinkA.href = data.url;
+            mobileLinkA.textContent = data.url;
+        });
+
+        socket.on('mode_changed', (mode) => {
+            currentMode = mode;
+            updateModeUI();
+        });
+
+        socket.on('servers_updated', (newServers) => {
+            servers = newServers;
+            updateServerPositions();
+            renderServerList();
+        });
+
+        socket.on('route_update', (data) => {
+            if (data.servers) {
+                servers = data.servers;
+                updateServerPositions();
+            }
+            spawnPacket(data);
+        });
+
+        // UI Interactions
+        modeOptions.forEach(opt => {
+            opt.addEventListener('click', () => {
+                const mode = opt.getAttribute('data-mode');
+                socket.emit('switch_mode', mode);
+            });
+        });
+
+        function updateModeUI() {
+            modeOptions.forEach(opt => {
+                if (opt.getAttribute('data-mode') === currentMode) {
+                    opt.classList.add('active');
+                } else {
+                    opt.classList.remove('active');
+                }
+            });
+        }
+
+        function renderServerList() {
+            serverListEl.innerHTML = '';
+            servers.forEach(srv => {
+                const div = document.createElement('div');
+                div.className = 'server-item';
+                div.innerHTML = `
+                    <div class="server-info">
+                        <h4>${srv.name}</h4>
+                        <span>${srv.path}</span>
+                    </div>
+                    <button class="delete-btn" onclick="removeServer('${srv.id}')">✕</button>
+                `;
+                serverListEl.appendChild(div);
+            });
+        }
+
+        window.removeServer = function(id) {
+            const newServers = servers.filter(s => s.id !== id);
+            socket.emit('update_servers', newServers);
+        };
+
+        window.resetCounters = function() {
+            socket.emit('reset_counters');
+        };
+
+        window.updatePublicUrl = function() {
+            const url = document.getElementById('public-url-input').value.trim();
+            if(url.length > 0) socket.emit('set_public_url', url);
+        };
+
+        addServerForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const name = document.getElementById('srv-name').value;
+            const path = document.getElementById('srv-path').value;
+            const newId = 'srv_' + Math.random().toString(36).substr(2, 6);
+            
+            servers.push({ id: newId, name, path });
+            socket.emit('update_servers', servers);
+            
+            document.getElementById('srv-name').value = '';
+        });
+
+        // Animation Engine
+        function updateServerPositions() {
+            serverNodes = [];
+            const rect = canvas.getBoundingClientRect();
+            const cw = rect.width;
+            const ch = rect.height;
+
+            const startX = cw * 0.75;
+            const sW = 100, sH = 50;
+            const spacing = Math.min((ch * 0.8) / Math.max(servers.length, 1), 70);
+            const startY = (ch / 2) - ((servers.length - 1) * spacing) / 2;
+
+            servers.forEach((srv, i) => {
+                serverNodes.push({
+                    id: srv.id,
+                    name: srv.name,
+                    path: srv.path,
+                    x: startX,
+                    y: startY + (i * spacing),
+                    w: sW,
+                    h: sH
+                });
+            });
+            lbNode.x = cw * 0.35;
+            lbNode.y = ch / 2;
+        }
+
+        function spawnPacket(routeData) {
+            const rect = canvas.getBoundingClientRect();
+            const startY = Math.random() * rect.height;
+            packets.push({
+                x: 0,
+                y: startY,
+                phase: 'to_lb', 
+                route: routeData,
+                speed: 3 + Math.random() * 2,
+                color: getPathColor(routeData.path)
+            });
+        }
+
+        function getPathColor(path) {
+            switch(path) {
+                case '/api': return '#60a5fa'; 
+                case '/images': return '#fbbf24'; 
+                case '/video': return '#a855f7'; // Purple for Video
+                case '/admin': return '#f87171'; 
+                default: return '#34d399'; 
+            }
+        }
+
+        function drawNode(node, isLB) {
+            const x = node.x - node.w/2;
+            const y = node.y - node.h/2;
+            
+            const fill = isLB ? 'rgba(16, 185, 129, 0.15)' : 'rgba(30, 41, 59, 0.95)';
+            const stroke = isLB ? '#10b981' : '#3b82f6';
+            const glow = isLB ? 'rgba(16, 185, 129, 0.4)' : 'rgba(59, 130, 246, 0.3)';
+            
+            drawRoundedRect(x, y, node.w, node.h, 8, fill, stroke, glow);
+
+            ctx.fillStyle = '#fff';
+            ctx.font = isLB ? '600 14px Outfit' : '600 12px Outfit';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
+            if (isLB) {
+                ctx.fillText(node.label, node.x, node.y);
+            } else {
+                ctx.fillText(node.name, node.x, node.y - 8);
+                ctx.fillStyle = '#94a3b8';
+                ctx.font = '400 10px Outfit';
+                ctx.fillText(node.path, node.x, node.y + 10);
+
+                // Draw Count Badge
+                const srvState = servers.find(s => s.id === node.id);
+                if (srvState && srvState.count !== undefined) {
+                    ctx.fillStyle = 'rgba(59, 130, 246, 0.2)';
+                    ctx.beginPath();
+                    ctx.roundRect(node.x - 15, node.y - node.h/2 - 15, 30, 14, 4);
+                    ctx.fill();
+                    ctx.fillStyle = '#60a5fa';
+                    ctx.font = 'bold 9px Outfit';
+                    ctx.fillText(srvState.count, node.x, node.y - node.h/2 - 8);
+                }
+            }
+        }
+
+        function animate() {
+            const rect = canvas.getBoundingClientRect();
+            ctx.clearRect(0, 0, rect.width, rect.height);
+            
+            // Connections
+            ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+            ctx.lineWidth = 1;
+            serverNodes.forEach(srv => {
+                ctx.beginPath();
+                ctx.moveTo(lbNode.x + lbNode.w/2, lbNode.y); // Draw from right side of LB
+                ctx.lineTo(srv.x - srv.w/2, srv.y);
+                ctx.stroke();
+            });
+
+            // Packets
+            for (let i = packets.length - 1; i >= 0; i--) {
+                let p = packets[i];
+                
+                if (p.phase === 'to_lb') {
+                    const dx = (lbNode.x - lbNode.w/2) - p.x;
+                    const dy = lbNode.y - p.y;
+                    const dist = Math.hypot(dx, dy);
+                    
+                    if (dist < p.speed) {
+                        p.x = lbNode.x;
+                        p.y = lbNode.y;
+                        p.phase = 'to_server';
+                        if (!p.route.target) p.phase = 'drop';
+                    } else {
+                        p.x += (dx / dist) * p.speed;
+                        p.y += (dy / dist) * p.speed;
+                    }
+                } 
+                else if (p.phase === 'to_server') {
+                    const targetNode = serverNodes.find(s => s.id === p.route.target);
+                    if (!targetNode) { p.phase = 'drop'; continue; }
+
+                    const targetX = targetNode.x - targetNode.w/2;
+                    const dx = targetX - p.x;
+                    const dy = targetNode.y - p.y;
+                    const dist = Math.hypot(dx, dy);
+                    
+                    if (dist < p.speed) {
+                        packets.splice(i, 1);
+                        continue;
+                    } else {
+                        p.x += (dx / dist) * p.speed;
+                        p.y += (dy / dist) * p.speed;
+                    }
+                }
+
+                if (p.phase === 'drop') {
+                    packets.splice(i, 1);
+                    continue;
+                }
+
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+                ctx.fillStyle = p.color;
+                ctx.fill();
+                ctx.shadowBlur = 8;
+                ctx.shadowColor = p.color;
+
+                // Draw Message
+                if (p.route.message) {
+                    ctx.font = '800 20px Outfit';
+                    ctx.textAlign = 'center';
+                    
+                    // Draw message glow/halo
+                    ctx.shadowBlur = 6;
+                    ctx.shadowColor = 'rgba(0,0,0,1)';
+                    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+                    ctx.fillText(p.route.message, p.x, p.y - 12); // Shadow offset
+                    
+                    ctx.shadowBlur = 0;
+                    ctx.fillStyle = 'white';
+                    ctx.fillText(p.route.message, p.x, p.y - 12);
+                }
+            }
+            ctx.shadowBlur = 0;
+
+            drawNode(lbNode, true);
+            serverNodes.forEach(srv => drawNode(srv, false));
+
+            requestAnimationFrame(animate);
+        }
+
+        resizeCanvas();
+        animate();
+
+    </script>
+</body>
+</html>

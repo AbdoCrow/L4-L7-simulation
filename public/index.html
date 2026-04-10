@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Load Balancer - Mobile Client</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+    <div class="mobile-container glass">
+        <header style="flex-direction: column; align-items: flex-start; margin-bottom: 1rem;">
+            <h1 class="text-gradient">Traffic Generator</h1>
+            <div class="Subheading">Client ID: <span id="client-id" style="font-family: monospace;">Connecting...</span></div>
+            <div class="Subheading" style="margin-top: 10px;">LB Mode: <strong id="current-mode" style="color: var(--accent);">L4</strong></div>
+        </header>
+
+        <p style="color: var(--text-secondary); font-size: 0.9rem;">
+            Tap the buttons below to simulate sending network requests. Observe how the Load Balancer handles them on the presenter screen.
+        </p>
+
+        <div class="req-grid">
+            <button class="req-btn glass req-action" style="border-color: #3b82f6;" onclick="sendReq('/api')">
+                /api
+                <span>Data API</span>
+            </button>
+            <button class="req-btn glass req-action" style="border-color: #f59e0b;" onclick="sendReq('/images')">
+                /images
+                <span>Static Assets</span>
+            </button>
+            <button class="req-btn glass req-action" style="border-color: #ef4444;" onclick="sendReq('/admin')">
+                /admin
+                <span>Internal Sys</span>
+            </button>
+            <button class="req-btn glass req-action" style="border-color: #a855f7;" onclick="sendReq('/video')">
+                /video
+                <span>Video Stream</span>
+            </button>
+            <button class="req-btn glass req-action" style="border-color: #10b981;" onclick="sendReq('/other')">
+                /other
+                <span>Wildcard</span>
+            </button>
+        </div>
+
+        <div style="margin-top: 1.5rem;">
+            <label style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.5rem; display: block;">Custom Message (5s Cooldown)</label>
+            <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
+                <input type="text" id="user-msg" placeholder="e.g. Hello!" maxlength="12" style="flex:1;">
+                <button class="primary req-action" onclick="sendReq('/other')" style="padding: 0 1rem;">Send</button>
+            </div>
+            
+            <div id="cooldown-timer" style="display: none; text-align: center; color: var(--warning); font-size: 0.9rem; font-weight: 600; margin-bottom: 1rem;">
+                Cooldown: <span id="secs">5</span>s
+            </div>
+
+            <button class="primary" style="width: 100%; height: 50px;" id="spam-btn">
+                Simulate Heavy Traffic (Auto)
+            </button>
+        </div>
+
+        <div class="log-panel" id="log-panel">
+            <!-- Logs will appear here -->
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        const clientIdEl = document.getElementById('client-id');
+        const modeEl = document.getElementById('current-mode');
+        const logPanel = document.getElementById('log-panel');
+        const spamBtn = document.getElementById('spam-btn');
+
+        let spamInterval = null;
+
+        socket.on('connect', () => {
+            clientIdEl.textContent = socket.id.substr(0, 6);
+        });
+
+        socket.on('initial_state', (data) => {
+            modeEl.textContent = data.mode;
+        });
+
+        socket.on('mode_changed', (mode) => {
+            modeEl.textContent = mode;
+        });
+
+        // Listen for route updates related to us
+        socket.on('route_update', (data) => {
+            if (data.clientId === socket.id) {
+                logResponse(data);
+            }
+        });
+
+        const msgInput = document.getElementById('user-msg');
+        const cooldownEl = document.getElementById('cooldown-timer');
+        const secsEl = document.getElementById('secs');
+        let isCooldown = false;
+
+        window.sendReq = function(path) {
+            if (isCooldown) return;
+
+            const message = msgInput.value.trim();
+            socket.emit('send_request', { path, message });
+
+            if (message.length > 0) {
+                startCooldown();
+                msgInput.value = ''; // Clear after sending
+            }
+        };
+
+        function startCooldown() {
+            isCooldown = true;
+            cooldownEl.style.display = 'block';
+            document.querySelectorAll('.req-action, #spam-btn').forEach(b => b.disabled = true);
+            
+            let timeLeft = 5;
+            secsEl.textContent = timeLeft;
+            
+            const interval = setInterval(() => {
+                timeLeft--;
+                secsEl.textContent = timeLeft;
+                if (timeLeft <= 0) {
+                    clearInterval(interval);
+                    isCooldown = false;
+                    cooldownEl.style.display = 'none';
+                    document.querySelectorAll('.req-action, #spam-btn').forEach(b => b.disabled = false);
+                }
+            }, 1000);
+        }
+
+        function logResponse(data) {
+            const el = document.createElement('div');
+            el.className = 'log-entry';
+            
+            const time = new Date().toLocaleTimeString();
+            if (data.target) {
+                el.classList.add('success');
+                el.innerHTML = `[${time}] ${data.path} <span style="color:#60a5fa">→</span> ${data.targetName}`;
+            } else {
+                el.classList.add('drop');
+                el.innerHTML = `[${time}] ${data.path} <span style="color:#ef4444">dropped</span> (No Servers)`;
+            }
+            
+            logPanel.prepend(el);
+
+            // Keep log size manageable
+            if (logPanel.children.length > 50) {
+                logPanel.removeChild(logPanel.lastChild);
+            }
+        }
+
+        // Spam Traffic Logic
+        spamBtn.addEventListener('click', () => {
+            if (spamInterval) {
+                clearInterval(spamInterval);
+                spamInterval = null;
+                spamBtn.textContent = 'Simulate Heavy Traffic (Auto)';
+                spamBtn.classList.remove('active');
+            } else {
+                spamBtn.textContent = 'Stop Heavy Traffic';
+                spamBtn.classList.add('active');
+                
+                const paths = ['/api', '/images', '/admin', '/other'];
+                spamInterval = setInterval(() => {
+                    const rPath = paths[Math.floor(Math.random() * paths.length)];
+                    sendReq(rPath);
+                }, 200); // 5 reqs per sec per client
+            }
+        });
+
+    </script>
+</body>
+</html>
