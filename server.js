@@ -23,7 +23,9 @@ const STATELESS_POLICIES = {
 };
 
 const RING_COLORS = ['#60a5fa', '#10b981', '#a78bfa', '#f59e0b', '#22d3ee', '#fbbf24'];
-const VIRTUAL_NODES_PER_SERVER = 10;
+const MIN_VIRTUAL_NODES = 1;
+const MAX_VIRTUAL_NODES = 256;
+let virtualNodesPerServer = 10;
 
 let currentMode = MODES.STATELESS;
 let statelessPolicy = STATELESS_POLICIES.L4;
@@ -101,11 +103,16 @@ function isStatefulMode(mode) {
     return mode === MODES.MOD_N || mode === MODES.CONSISTENT;
 }
 
-function buildRing(serverList) {
+function normalizeVirtualNodeCount(value) {
+    return Math.max(MIN_VIRTUAL_NODES, Math.min(MAX_VIRTUAL_NODES, Number(value) || 10));
+}
+
+function buildRing(serverList, vnodeCount = virtualNodesPerServer) {
+    const safeVNodeCount = normalizeVirtualNodeCount(vnodeCount);
     const ring = [];
     serverList.forEach((srv, serverIndex) => {
         const color = RING_COLORS[serverIndex % RING_COLORS.length];
-        for (let vnodeIndex = 0; vnodeIndex < VIRTUAL_NODES_PER_SERVER; vnodeIndex++) {
+        for (let vnodeIndex = 0; vnodeIndex < safeVNodeCount; vnodeIndex++) {
             const vnodeKey = `${srv.id}::${vnodeIndex}`;
             ring.push({
                 serverId: srv.id,
@@ -133,14 +140,14 @@ function locateRingServer(ring, requestHash) {
     return ring[0].serverId;
 }
 
-function getServerIdForStatefulMode(mode, requestId, serverList) {
+function getServerIdForStatefulMode(mode, requestId, serverList, vnodeCount = virtualNodesPerServer) {
     if (!serverList.length) return null;
     if (mode === MODES.MOD_N) {
         const index = hash32(requestId) % serverList.length;
         return serverList[index].id;
     }
     if (mode === MODES.CONSISTENT) {
-        const ring = buildRing(serverList);
+        const ring = buildRing(serverList, vnodeCount);
         return locateRingServer(ring, hashToRing(requestId));
     }
     return null;
@@ -282,7 +289,7 @@ function getHashMapSnapshot() {
     return {
         mode: currentMode,
         statelessPolicy,
-        virtualNodesPerServer: VIRTUAL_NODES_PER_SERVER,
+        virtualNodesPerServer,
         ring,
         keyMappings,
         affectedRanges: overlay.affectedRanges,
@@ -320,7 +327,7 @@ function emitStateSnapshots() {
     io.emit('metrics_update', getMetricsSnapshot());
 }
 
-function computeAffectedRanges(mode, oldServers, newServers) {
+function computeAffectedRanges(mode, oldServers, newServers, oldVNodeCount = virtualNodesPerServer, newVNodeCount = virtualNodesPerServer) {
     if (mode === MODES.MOD_N) {
         return [{ start: 0, end: 359.999 }];
     }
@@ -328,8 +335,8 @@ function computeAffectedRanges(mode, oldServers, newServers) {
         return [];
     }
 
-    const oldRing = buildRing(oldServers);
-    const newRing = buildRing(newServers);
+    const oldRing = buildRing(oldServers, oldVNodeCount);
+    const newRing = buildRing(newServers, newVNodeCount);
     if (!oldRing.length || !newRing.length) {
         return [{ start: 0, end: 359.999 }];
     }
@@ -372,7 +379,7 @@ function computeAffectedRanges(mode, oldServers, newServers) {
     return ranges;
 }
 
-function computeRehashImpact(mode, oldServers, newServers, reason) {
+function computeRehashImpact(mode, oldServers, newServers, reason, oldVNodeCount = virtualNodesPerServer, newVNodeCount = virtualNodesPerServer) {
     if (!isStatefulMode(mode)) {
         return {
             mode,
@@ -393,8 +400,8 @@ function computeRehashImpact(mode, oldServers, newServers, reason) {
     let moved = 0;
 
     for (const key of keys) {
-        const oldServer = getServerIdForStatefulMode(mode, key, oldServers);
-        const newServer = getServerIdForStatefulMode(mode, key, newServers);
+        const oldServer = getServerIdForStatefulMode(mode, key, oldServers, oldVNodeCount);
+        const newServer = getServerIdForStatefulMode(mode, key, newServers, newVNodeCount);
         if (oldServer !== newServer) {
             moved += 1;
             if (changedSamples.length < 40) {
@@ -420,7 +427,7 @@ function computeRehashImpact(mode, oldServers, newServers, reason) {
         affectedPercent,
         movedKeys: moved,
         totalKeys: keys.length,
-        affectedRanges: computeAffectedRanges(mode, oldServers, newServers),
+        affectedRanges: computeAffectedRanges(mode, oldServers, newServers, oldVNodeCount, newVNodeCount),
         changedSamples,
         timestamp: Date.now()
     };
@@ -605,6 +612,7 @@ io.on('connection', (socket) => {
     socket.emit('initial_state', {
         mode: currentMode,
         statelessPolicy,
+        virtualNodesPerServer,
         modeLabel: formatModeLabel(),
         servers: getServerSnapshots(),
         qrCode: qrCodeDataUrl,
@@ -649,6 +657,41 @@ io.on('connection', (socket) => {
             applyRehashEvent(modeSwitchRehash);
         }
 
+        emitStateSnapshots();
+    });
+
+    socket.on('set_virtual_nodes', (payload) => {
+        const rawValue = typeof payload === 'number'
+            ? payload
+            : payload && Object.prototype.hasOwnProperty.call(payload, 'k')
+                ? payload.k
+                : NaN;
+
+        const parsed = Number(rawValue);
+        if (!Number.isFinite(parsed)) return;
+
+        const nextValue = normalizeVirtualNodeCount(Math.round(parsed));
+        if (nextValue === virtualNodesPerServer) {
+            socket.emit('virtual_nodes_changed', { k: virtualNodesPerServer });
+            return;
+        }
+
+        const oldTopology = cloneTopology(servers);
+        const previousK = virtualNodesPerServer;
+        virtualNodesPerServer = nextValue;
+
+        console.log(`Virtual nodes per server set to ${virtualNodesPerServer}.`);
+
+        const rehashEvent = computeRehashImpact(
+            currentMode,
+            oldTopology,
+            oldTopology,
+            'vnode_count_changed',
+            previousK,
+            virtualNodesPerServer
+        );
+        applyRehashEvent(rehashEvent);
+        io.emit('virtual_nodes_changed', { k: virtualNodesPerServer, previousK });
         emitStateSnapshots();
     });
 

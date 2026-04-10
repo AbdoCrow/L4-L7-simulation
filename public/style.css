@@ -182,6 +182,27 @@ button.primary:hover {
     color: var(--text-secondary);
 }
 
+.hash-settings-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+}
+
+.hash-settings-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.hash-settings-controls input {
+    flex: 1;
+}
+
+.hash-settings-controls button {
+    white-space: nowrap;
+    padding: 0.65rem 0.9rem;
+}
+
 .metrics-panel {
     background: rgba(255, 255, 255, 0.02);
     border: 1px solid var(--border-color);

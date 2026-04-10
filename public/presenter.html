@@ -66,6 +66,33 @@
                     </div>
                 </div>
 
+                <div class="config-section">
+                    <h3>Hash Settings</h3>
+                    <div class="hash-settings-row">
+                        <label for="vnode-count-input" style="font-size:0.8rem; color: var(--text-secondary);">Virtual Nodes Per Server (k)</label>
+                        <div class="hash-settings-controls">
+                            <input type="number" id="vnode-count-input" min="1" max="256" step="1" value="10">
+                            <button type="button" id="apply-vnode-btn" class="primary">Apply k</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="config-section">
+                    <h3>Add Server</h3>
+                    <form class="add-server-form" id="add-server-form">
+                        <button type="submit" class="primary">Deploy Server</button>
+                        <input type="text" id="srv-name" placeholder="Server Name (e.g. Server D)" required>
+                        <select id="srv-path" required>
+                            <option value="/api">/api (API Traffic)</option>
+                            <option value="/images">/images (Static Assets)</option>
+                            <option value="/video">/video (Video Stream)</option>
+                            <option value="/admin">/admin (Internal)</option>
+                            <option value="/other">/other (Wildcard)</option>
+                        </select>
+                        <input type="number" id="srv-capacity" min="1" max="200" value="12" required>
+                    </form>
+                </div>
+
                 <div class="config-section qr-container" style="margin-top: 0; padding-top: 0; background: none; border: none;">
                     <h3 style="margin-bottom: 0.5rem; font-size: 0.9rem;">Join Simulation</h3>
                     <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
@@ -86,22 +113,6 @@
                     <div class="server-list" id="server-list">
                         <!-- Server list rendered dynamically -->
                     </div>
-                </div>
-
-                <div class="config-section">
-                    <h3>Add Server</h3>
-                    <form class="add-server-form" id="add-server-form">
-                        <button type="submit" class="primary">Deploy Server</button>
-                        <input type="text" id="srv-name" placeholder="Server Name (e.g. Server D)" required>
-                        <select id="srv-path" required>
-                            <option value="/api">/api (API Traffic)</option>
-                            <option value="/images">/images (Static Assets)</option>
-                            <option value="/video">/video (Video Stream)</option>
-                            <option value="/admin">/admin (Internal)</option>
-                            <option value="/other">/other (Wildcard)</option>
-                        </select>
-                        <input type="number" id="srv-capacity" min="1" max="200" value="12" required>
-                    </form>
                 </div>
             </div>
         </div>
@@ -141,6 +152,8 @@
         const policyToggle = document.getElementById('stateless-policy-toggle');
         const serverListEl = document.getElementById('server-list');
         const addServerForm = document.getElementById('add-server-form');
+        const vnodeCountInputEl = document.getElementById('vnode-count-input');
+        const applyVnodeBtn = document.getElementById('apply-vnode-btn');
         const qrCodeImg = document.getElementById('qr-code');
         const mobileLinkA = document.getElementById('mobile-link');
         const rehashImpactLabelEl = document.getElementById('rehash-impact-label');
@@ -216,6 +229,27 @@
             return mode === MODES.MOD_N || mode === MODES.CONSISTENT;
         }
 
+        function normalizeVirtualNodeCount(value) {
+            const parsed = Number(value);
+            if (!Number.isFinite(parsed)) return 10;
+            return Math.max(1, Math.min(256, Math.round(parsed)));
+        }
+
+        function syncVirtualNodeInput(force = false) {
+            if (!vnodeCountInputEl) return;
+            const vnodeCount = normalizeVirtualNodeCount(hashMapState.virtualNodesPerServer || 10);
+            if (force || document.activeElement !== vnodeCountInputEl) {
+                vnodeCountInputEl.value = String(vnodeCount);
+            }
+        }
+
+        function submitVirtualNodeCount() {
+            if (!vnodeCountInputEl) return;
+            const nextValue = normalizeVirtualNodeCount(vnodeCountInputEl.value);
+            vnodeCountInputEl.value = String(nextValue);
+            socket.emit('set_virtual_nodes', { k: nextValue });
+        }
+
         function setBarValue(barEl, valueEl, numericValue) {
             const safeValue = Math.max(0, Math.min(100, Number(numericValue) || 0));
             barEl.style.width = `${safeValue}%`;
@@ -267,17 +301,18 @@
             const cw = rect.width;
             const ch = rect.height;
             const statefulView = isStatefulMode(currentMode);
+            const ringScale = cw > 1000 ? 0.24 : cw > 800 ? 0.21 : 0.18;
 
             ringCenter = statefulView
-                ? { x: cw * 0.48, y: ch * 0.3 }
+                ? { x: cw * 0.50, y: ch * 0.24 }
                 : { x: cw * 0.53, y: ch * 0.52 };
             ringRadius = statefulView
-                ? Math.max(72, Math.min(cw, ch) * 0.16)
+                ? Math.max(84, Math.min(cw, ch) * ringScale)
                 : Math.max(85, Math.min(cw, ch) * 0.28);
 
             lbNode = {
                 x: cw * 0.24,
-                y: statefulView ? ch * 0.62 : ch * 0.5,
+                y: statefulView ? ch * 0.56 : ch * 0.48,
                 w: 132,
                 h: 62,
                 label: currentMode === MODES.MOD_N
@@ -292,7 +327,8 @@
             const sW = 118;
             const sH = 56;
             const spacing = Math.min((ch * 0.75) / Math.max(servers.length, 1), 74);
-            const startY = (ch / 2) - ((servers.length - 1) * spacing) / 2;
+            const serverCenterY = statefulView ? ch * 0.48 : ch * 0.46;
+            const startY = serverCenterY - ((servers.length - 1) * spacing) / 2;
 
             servers.forEach((srv, i) => {
                 serverNodes.push({
@@ -309,7 +345,7 @@
 
             ringNodes = (hashMapState.ring && hashMapState.ring.length)
                 ? hashMapState.ring
-                : servers.flatMap((srv, idx) => Array.from({ length: 10 }, (_, vnodeIndex) => ({
+                : servers.flatMap((srv, idx) => Array.from({ length: normalizeVirtualNodeCount(hashMapState.virtualNodesPerServer || 10) }, (_, vnodeIndex) => ({
                     serverId: srv.id,
                     name: srv.name,
                     hash: hashToRing(`${srv.id}::${vnodeIndex}`),
@@ -778,6 +814,9 @@
             if (data.hashMap) {
                 hashMapState = data.hashMap;
             }
+            if (data.virtualNodesPerServer) {
+                hashMapState.virtualNodesPerServer = normalizeVirtualNodeCount(data.virtualNodesPerServer);
+            }
             if (data.metrics) {
                 metricsState = data.metrics;
             }
@@ -786,6 +825,7 @@
             }
             ringFlashUntil = 0;
             ringFlashRanges = [];
+            syncVirtualNodeInput(true);
             updateModeUI();
             updateMetricsUI();
             
@@ -830,7 +870,17 @@
                 ...hashMap,
                 affectedRanges: []
             };
+            syncVirtualNodeInput();
             updateLayoutGeometry();
+        });
+
+        socket.on('virtual_nodes_changed', (payload) => {
+            if (!payload) return;
+            if (Object.prototype.hasOwnProperty.call(payload, 'k')) {
+                hashMapState.virtualNodesPerServer = normalizeVirtualNodeCount(payload.k);
+                syncVirtualNodeInput(true);
+                updateLayoutGeometry();
+            }
         });
 
         socket.on('rehash_event', (rehashData) => {
@@ -890,10 +940,22 @@
             });
         });
 
+        if (applyVnodeBtn) {
+            applyVnodeBtn.addEventListener('click', submitVirtualNodeCount);
+        }
+
+        if (vnodeCountInputEl) {
+            vnodeCountInputEl.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    submitVirtualNodeCount();
+                }
+            });
+        }
+
         function renderServerList() {
             serverListEl.innerHTML = '';
             servers.forEach(srv => {
-                const loadPct = Math.max(0, Math.min(100, Number(srv.loadPct) || 0));
                 const div = document.createElement('div');
                 div.className = 'server-item';
                 div.innerHTML = `
@@ -901,17 +963,7 @@
                         <h4>${srv.name}</h4>
                         <span>${srv.path}</span>
                         <div class="srv-metrics">
-                            <div class="srv-metric-row">
-                                <small>Load ${srv.currentLoad || 0}/${srv.capacity || 0} req/s</small>
-                                <small>${loadPct.toFixed(1)}%</small>
-                            </div>
-                            <div class="load-bar">
-                                <div class="load-fill" style="width:${loadPct.toFixed(1)}%"></div>
-                            </div>
-                            <div class="srv-metric-row">
-                                <small>Active ${srv.activeConnections || 0}</small>
-                                <small>Path ${srv.path}</small>
-                            </div>
+
                         </div>
                     </div>
                     <button class="delete-btn" onclick="removeServer('${srv.id}')">✕</button>
