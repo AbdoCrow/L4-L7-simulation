@@ -132,7 +132,8 @@
             ring: [],
             keyMappings: [],
             affectedRanges: [],
-            rehashImpact: 0
+            rehashImpact: 0,
+            virtualNodesPerServer: 10
         };
         let metricsState = null;
         let lastRehashEvent = {
@@ -188,9 +189,13 @@
         let lbNode = { x: 0, y: 0, w: 130, h: 62, label: 'Load Balancer' };
         let serverNodes = [];
         let ringNodes = [];
-        let ringNodePositions = new Map();
+        let ringVirtualPositions = [];
+        let ringServerAnchors = new Map();
         let ringCenter = { x: 0, y: 0 };
         let ringRadius = 100;
+        const RING_FLASH_MS = 3000;
+        let ringFlashUntil = 0;
+        let ringFlashRanges = [];
 
         function hashToRing(value) {
             let hash = 2166136261;
@@ -275,13 +280,18 @@
             const rect = canvas.getBoundingClientRect();
             const cw = rect.width;
             const ch = rect.height;
+            const statefulView = isStatefulMode(currentMode);
 
-            ringCenter = { x: cw * 0.53, y: ch * 0.52 };
-            ringRadius = Math.max(85, Math.min(cw, ch) * 0.28);
+            ringCenter = statefulView
+                ? { x: cw * 0.48, y: ch * 0.3 }
+                : { x: cw * 0.53, y: ch * 0.52 };
+            ringRadius = statefulView
+                ? Math.max(72, Math.min(cw, ch) * 0.16)
+                : Math.max(85, Math.min(cw, ch) * 0.28);
 
             lbNode = {
                 x: cw * 0.24,
-                y: ch * 0.5,
+                y: statefulView ? ch * 0.62 : ch * 0.5,
                 w: 132,
                 h: 62,
                 label: currentMode === MODES.MOD_N
@@ -313,23 +323,37 @@
 
             ringNodes = (hashMapState.ring && hashMapState.ring.length)
                 ? hashMapState.ring
-                : servers.map((srv, idx) => ({
+                : servers.flatMap((srv, idx) => Array.from({ length: 10 }, (_, vnodeIndex) => ({
                     serverId: srv.id,
                     name: srv.name,
-                    hash: hashToRing(srv.id),
-                    color: FALLBACK_RING_COLORS[idx % FALLBACK_RING_COLORS.length]
-                }));
+                    hash: hashToRing(`${srv.id}::${vnodeIndex}`),
+                    color: FALLBACK_RING_COLORS[idx % FALLBACK_RING_COLORS.length],
+                    vnodeIndex,
+                    vnodeKey: `${srv.id}::${vnodeIndex}`
+                })));
 
-            ringNodePositions = new Map();
+            if (currentMode === MODES.MOD_N) {
+                ringNodes = [];
+            }
+
+            ringVirtualPositions = [];
+            ringServerAnchors = new Map();
             ringNodes.forEach((node, idx) => {
                 const angle = ((node.hash / 360) * Math.PI * 2) - (Math.PI / 2);
-                ringNodePositions.set(node.serverId, {
+                const pos = {
                     x: ringCenter.x + Math.cos(angle) * ringRadius,
                     y: ringCenter.y + Math.sin(angle) * ringRadius,
                     color: node.color || FALLBACK_RING_COLORS[idx % FALLBACK_RING_COLORS.length],
                     hash: node.hash,
-                    name: node.name
-                });
+                    name: node.name,
+                    serverId: node.serverId,
+                    vnodeIndex: Number(node.vnodeIndex) || 0,
+                    vnodeKey: node.vnodeKey || `${node.serverId}::${Number(node.vnodeIndex) || 0}`
+                };
+                ringVirtualPositions.push(pos);
+                if (!ringServerAnchors.has(node.serverId)) {
+                    ringServerAnchors.set(node.serverId, pos);
+                }
             });
         }
         
@@ -394,6 +418,47 @@
             }
         }
 
+        function toLinearRanges(ranges) {
+            const linear = [];
+            ranges.forEach((range) => {
+                const start = ((Number(range.start) || 0) % 360 + 360) % 360;
+                const end = ((Number(range.end) || 0) % 360 + 360) % 360;
+                if (start <= end) {
+                    linear.push({ start, end });
+                } else {
+                    linear.push({ start: 0, end });
+                    linear.push({ start, end: 360 });
+                }
+            });
+            return linear;
+        }
+
+        function mergeLinearRanges(ranges) {
+            if (!ranges.length) return [];
+            const sorted = [...ranges].sort((a, b) => a.start - b.start);
+            const merged = [sorted[0]];
+            for (let i = 1; i < sorted.length; i++) {
+                const current = sorted[i];
+                const previous = merged[merged.length - 1];
+                if (current.start <= previous.end + 0.05) {
+                    previous.end = Math.max(previous.end, current.end);
+                } else {
+                    merged.push({ ...current });
+                }
+            }
+            return merged;
+        }
+
+        function buildSpotRangesFromHashes(hashValues, halfWidth = 1.1) {
+            const validHashes = hashValues.filter((value) => Number.isFinite(value));
+            if (!validHashes.length) return [];
+            const spotRanges = validHashes.map((hash) => ({
+                start: hash - halfWidth,
+                end: hash + halfWidth
+            }));
+            return mergeLinearRanges(toLinearRanges(spotRanges));
+        }
+
         function drawHashRing() {
             if (!isStatefulMode(currentMode)) {
                 return;
@@ -407,12 +472,11 @@
             ctx.lineWidth = 3;
             ctx.stroke();
 
-            const affectedRanges = (hashMapState.affectedRanges && hashMapState.affectedRanges.length)
-                ? hashMapState.affectedRanges
-                : (lastRehashEvent.mode === currentMode ? (lastRehashEvent.affectedRanges || []) : []);
+            const shouldFlash = Date.now() < ringFlashUntil;
+            const affectedRanges = shouldFlash ? ringFlashRanges : [];
 
             affectedRanges.forEach((range) => {
-                drawRingSegment(range.start, range.end, '#ef4444', 7);
+                drawRingSegment(range.start, range.end, '#ef4444', 4.5);
             });
 
             const keyMappings = hashMapState.keyMappings || [];
@@ -424,21 +488,30 @@
                 ctx.fill();
             });
 
-            ringNodePositions.forEach((nodePos, serverId) => {
+            ringVirtualPositions.forEach((nodePos) => {
                 ctx.beginPath();
-                ctx.arc(nodePos.x, nodePos.y, 11, 0, Math.PI * 2);
+                ctx.arc(nodePos.x, nodePos.y, 4, 0, Math.PI * 2);
                 ctx.fillStyle = nodePos.color;
                 ctx.fill();
 
-                ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
-                ctx.lineWidth = 1.5;
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+                ctx.lineWidth = 1;
                 ctx.stroke();
+            });
 
-                ctx.fillStyle = '#0f172a';
-                ctx.font = '700 10px Outfit';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText(serverId.replace('srv_', ''), nodePos.x, nodePos.y + 0.5);
+            let legendIndex = 0;
+            const vnodesPerServer = Number(hashMapState.virtualNodesPerServer) || 10;
+            ringServerAnchors.forEach((nodePos, serverId) => {
+                if (legendIndex >= 4) return;
+                const ly = ringCenter.y - ringRadius - 14 + (legendIndex * 14);
+                const lx = ringCenter.x - ringRadius;
+                ctx.fillStyle = nodePos.color;
+                ctx.fillRect(lx, ly - 7, 8, 8);
+                ctx.fillStyle = '#cbd5e1';
+                ctx.font = '600 10px Outfit';
+                ctx.textAlign = 'left';
+                ctx.fillText(`${serverId} (${vnodesPerServer} vNodes)`, lx + 12, ly);
+                legendIndex += 1;
             });
 
             const rehashImpact = Number(
@@ -446,7 +519,7 @@
                 (lastRehashEvent.mode === currentMode ? lastRehashEvent.affectedPercent : 0) ||
                 0
             );
-            ctx.fillStyle = 'rgba(239, 68, 68, 0.95)';
+            ctx.fillStyle = shouldFlash ? 'rgba(239, 68, 68, 0.95)' : 'rgba(96, 165, 250, 0.92)';
             ctx.font = '700 13px Outfit';
             ctx.textAlign = 'center';
             ctx.fillText(`${rehashImpact.toFixed(1)}% keys moved`, ringCenter.x, ringCenter.y + ringRadius + 24);
@@ -459,14 +532,14 @@
         }
 
         function findServerPoint(serverId, hashHint) {
-            if (currentMode === MODES.CONSISTENT) {
-                const ringPos = ringNodePositions.get(serverId);
-                if (ringPos) return ringPos;
-                return ringPointForHash(hashHint || 0);
-            }
             const rectNode = serverNodes.find((node) => node.id === serverId);
             if (rectNode) {
-                return { x: rectNode.x, y: rectNode.y };
+                return { x: rectNode.x - rectNode.w / 2, y: rectNode.y };
+            }
+            if (currentMode === MODES.CONSISTENT) {
+                const ringPos = ringServerAnchors.get(serverId);
+                if (ringPos) return ringPos;
+                return ringPointForHash(hashHint || 0);
             }
             return ringPointForHash(hashHint || 0);
         }
@@ -487,6 +560,17 @@
                 ctx.moveTo(lbNode.x + lbNode.w / 2, lbNode.y);
                 ctx.lineTo(ringCenter.x - ringRadius, ringCenter.y);
                 ctx.stroke();
+
+                ctx.strokeStyle = 'rgba(96, 165, 250, 0.2)';
+                ctx.lineWidth = 1;
+                serverNodes.forEach((srv) => {
+                    ctx.beginPath();
+                    ctx.moveTo(lbNode.x + lbNode.w / 2, lbNode.y);
+                    ctx.lineTo(srv.x - srv.w / 2, srv.y);
+                    ctx.stroke();
+                });
+
+                serverNodes.forEach((srv) => drawNode(srv, false));
                 return;
             }
 
@@ -550,7 +634,7 @@
             packets.push({
                 x: 16,
                 y: Math.random() * rect.height,
-                phase: routeData.mode === MODES.CONSISTENT ? 'to_ring' : 'to_lb',
+                phase: 'to_lb',
                 route: routeData,
                 speed: 3 + Math.random() * 1.8,
                 color: getPacketColor(routeData)
@@ -595,16 +679,6 @@
                 if (packet.phase === 'to_lb') {
                     const reached = movePointTowards(packet, lbNode.x - lbNode.w / 2, lbNode.y, packet.speed);
                     if (reached) {
-                        packet.phase = packet.route.target ? 'to_server' : 'drop';
-                    }
-                } else if (packet.phase === 'to_ring') {
-                    const ringTarget = ringPointForHash(
-                        packet.route.requestHash !== undefined
-                            ? packet.route.requestHash
-                            : hashToRing(packet.route.requestId || 'fallback')
-                    );
-                    const reachedRing = movePointTowards(packet, ringTarget.x, ringTarget.y, packet.speed);
-                    if (reachedRing) {
                         packet.phase = packet.route.target ? 'to_server' : 'drop';
                     }
                 } else if (packet.phase === 'to_server') {
@@ -732,6 +806,8 @@
             if (data.lastRehash) {
                 lastRehashEvent = data.lastRehash;
             }
+            ringFlashUntil = 0;
+            ringFlashRanges = [];
             updateModeUI();
             updateMetricsUI();
             
@@ -772,15 +848,26 @@
         });
 
         socket.on('hash_map_update', (hashMap) => {
-            hashMapState = hashMap;
+            hashMapState = {
+                ...hashMap,
+                affectedRanges: []
+            };
             updateLayoutGeometry();
         });
 
         socket.on('rehash_event', (rehashData) => {
             lastRehashEvent = rehashData;
-            hashMapState.affectedRanges = rehashData.affectedRanges || [];
             hashMapState.rehashImpact = Number(rehashData.affectedPercent) || 0;
             spawnMigrationBursts(rehashData.changedSamples || []);
+
+            if (rehashData && (rehashData.reason === 'server_added' || rehashData.reason === 'server_removed')) {
+                const movedHashes = (rehashData.changedSamples || []).map((item) => Number(item.hash));
+                ringFlashRanges = movedHashes.length
+                    ? buildSpotRangesFromHashes(movedHashes, 1.1)
+                    : (rehashData.affectedRanges || []);
+                ringFlashUntil = Date.now() + RING_FLASH_MS;
+            }
+
             rehashImpactLabelEl.textContent = `Rehash Impact: ${(Number(rehashData.affectedPercent) || 0).toFixed(1)}% affected`;
         });
 

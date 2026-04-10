@@ -189,11 +189,13 @@
                 spamBtn.textContent = 'Stop Heavy Traffic';
                 spamBtn.classList.add('active');
                 
-                const paths = ['/api', '/images', '/admin', '/other'];
+                const paths = ['/api', '/images', '/admin', '/video', '/other'];
                 spamInterval = setInterval(() => {
-                    const rPath = paths[Math.floor(Math.random() * paths.length)];
-                    sendReq(rPath);
-                }, 200); // 5 reqs per sec per client
+                    for (let i = 0; i < 2; i++) {
+                        const rPath = paths[Math.floor(Math.random() * paths.length)];
+                        sendReq(rPath);
+                    }
+                }, 500); // ~20 reqs per sec per client
             }
         });
 

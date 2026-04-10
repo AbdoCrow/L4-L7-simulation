@@ -23,6 +23,7 @@ const STATELESS_POLICIES = {
 };
 
 const RING_COLORS = ['#60a5fa', '#10b981', '#a78bfa', '#f59e0b', '#22d3ee', '#fbbf24'];
+const VIRTUAL_NODES_PER_SERVER = 10;
 
 let currentMode = MODES.STATELESS;
 let statelessPolicy = STATELESS_POLICIES.L4;
@@ -112,14 +113,25 @@ function isStatefulMode(mode) {
 }
 
 function buildRing(serverList) {
-    return serverList
-        .map((srv, index) => ({
-            serverId: srv.id,
-            name: srv.name,
-            hash: hashToRing(srv.id),
-            color: RING_COLORS[index % RING_COLORS.length]
-        }))
-        .sort((a, b) => a.hash - b.hash);
+    const ring = [];
+    serverList.forEach((srv, serverIndex) => {
+        const color = RING_COLORS[serverIndex % RING_COLORS.length];
+        for (let vnodeIndex = 0; vnodeIndex < VIRTUAL_NODES_PER_SERVER; vnodeIndex++) {
+            const vnodeKey = `${srv.id}::${vnodeIndex}`;
+            ring.push({
+                serverId: srv.id,
+                name: srv.name,
+                hash: hashToRing(vnodeKey),
+                color,
+                vnodeIndex,
+                vnodeKey
+            });
+        }
+    });
+    return ring.sort((a, b) => {
+        if (a.hash !== b.hash) return a.hash - b.hash;
+        return a.vnodeKey.localeCompare(b.vnodeKey);
+    });
 }
 
 function locateRingServer(ring, requestHash) {
@@ -287,6 +299,7 @@ function getHashMapSnapshot() {
     return {
         mode: currentMode,
         statelessPolicy,
+        virtualNodesPerServer: VIRTUAL_NODES_PER_SERVER,
         ring,
         keyMappings,
         affectedRanges: overlay.affectedRanges,
@@ -349,37 +362,42 @@ function computeAffectedRanges(mode, oldServers, newServers) {
         return [{ start: 0, end: 359.999 }];
     }
 
-    const oldIds = new Set(oldServers.map((srv) => srv.id));
-    const newIds = new Set(newServers.map((srv) => srv.id));
-    const added = Array.from(newIds).filter((id) => !oldIds.has(id));
-    const removed = Array.from(oldIds).filter((id) => !newIds.has(id));
+    const oldVNodeKeys = new Set(oldRing.map((node) => node.vnodeKey));
+    const newVNodeKeys = new Set(newRing.map((node) => node.vnodeKey));
+
+    const addedVNodes = newRing.filter((node) => !oldVNodeKeys.has(node.vnodeKey));
+    const removedVNodes = oldRing.filter((node) => !newVNodeKeys.has(node.vnodeKey));
     const ranges = [];
 
-    for (const serverId of added) {
-        const idx = newRing.findIndex((node) => node.serverId === serverId);
+    for (const vnode of addedVNodes) {
+        const idx = newRing.findIndex((node) => node.vnodeKey === vnode.vnodeKey);
         if (idx !== -1) {
             const prev = newRing[(idx - 1 + newRing.length) % newRing.length];
-            const curr = newRing[idx];
+            const curr = vnode;
             ranges.push({
                 start: (prev.hash + 0.01) % 360,
-                end: curr.hash
+                end: curr.hash,
+                serverId: curr.serverId,
+                vnodeIndex: curr.vnodeIndex
             });
         }
     }
 
-    for (const serverId of removed) {
-        const idx = oldRing.findIndex((node) => node.serverId === serverId);
+    for (const vnode of removedVNodes) {
+        const idx = oldRing.findIndex((node) => node.vnodeKey === vnode.vnodeKey);
         if (idx !== -1) {
             const prev = oldRing[(idx - 1 + oldRing.length) % oldRing.length];
-            const curr = oldRing[idx];
+            const curr = vnode;
             ranges.push({
                 start: (prev.hash + 0.01) % 360,
-                end: curr.hash
+                end: curr.hash,
+                serverId: curr.serverId,
+                vnodeIndex: curr.vnodeIndex
             });
         }
     }
 
-    return ranges.length ? ranges : [{ start: 0, end: 359.999 }];
+    return ranges;
 }
 
 function computeRehashImpact(mode, oldServers, newServers, reason) {
@@ -497,6 +515,21 @@ function refreshServerLoad(serverState, now) {
         (timestamp) => now - timestamp <= 1000
     );
     serverState.currentLoad = serverState.recentRequestTimes.length;
+}
+
+function resetServerStatistics() {
+    servers.forEach((srv) => {
+        srv.count = 0;
+        srv.currentLoad = 0;
+        srv.activeConnections = 0;
+        srv.cacheHits = 0;
+        srv.cacheMisses = 0;
+        srv.cache.clear();
+        srv.recentRequestTimes = [];
+    });
+    l4Index = 0;
+    requestToServer.clear();
+    recentRequestKeys.length = 0;
 }
 
 function generateRequestId(socketId, pathValue, providedId) {
@@ -642,6 +675,7 @@ io.on('connection', (socket) => {
 
         const switchedMode = oldMode !== currentMode || oldPolicy !== statelessPolicy;
         if (switchedMode) {
+            resetServerStatistics();
             const modeSwitchRehash = computeModeSwitchImpact(oldMode, currentMode, oldTopology);
             applyRehashEvent(modeSwitchRehash);
         }
@@ -689,17 +723,7 @@ io.on('connection', (socket) => {
     });
 
     socket.on('reset_counters', () => {
-        servers.forEach((srv) => {
-            srv.count = 0;
-            srv.currentLoad = 0;
-            srv.activeConnections = 0;
-            srv.cacheHits = 0;
-            srv.cacheMisses = 0;
-            srv.cache.clear();
-            srv.recentRequestTimes = [];
-        });
-        requestToServer.clear();
-        recentRequestKeys.length = 0;
+        resetServerStatistics();
         console.log('Server counters reset.');
         emitStateSnapshots();
     });
