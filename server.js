@@ -44,9 +44,6 @@ function createServerState(input, previousState) {
                 : 12,
         currentLoad: previousState ? previousState.currentLoad : 0,
         activeConnections: previousState ? previousState.activeConnections : 0,
-        cacheHits: previousState ? previousState.cacheHits : 0,
-        cacheMisses: previousState ? previousState.cacheMisses : 0,
-        cache: previousState ? previousState.cache : new Map(),
         recentRequestTimes: previousState ? previousState.recentRequestTimes : []
     };
 }
@@ -64,11 +61,6 @@ const RECENT_REQUEST_LIMIT = 320;
 
 const metrics = {
     totalRequests: 0,
-    modeLatency: {
-        [MODES.STATELESS]: { count: 0, total: 0 },
-        [MODES.MOD_N]: { count: 0, total: 0 },
-        [MODES.CONSISTENT]: { count: 0, total: 0 }
-    },
     rehashHistory: {
         [MODES.MOD_N]: [],
         [MODES.CONSISTENT]: []
@@ -89,23 +81,20 @@ const metrics = {
 const messageCooldowns = new Map();
 const COOLDOWN_MS = 5000;
 
+const crypto = require('crypto');
+
 function hash32(value) {
-    let hash = 2166136261;
-    const text = String(value);
-    for (let i = 0; i < text.length; i++) {
-        hash ^= text.charCodeAt(i);
-        hash +=
-            (hash << 1) +
-            (hash << 4) +
-            (hash << 7) +
-            (hash << 8) +
-            (hash << 24);
-    }
-    return hash >>> 0;
+    const hash = crypto
+        .createHash('sha256')
+        .update(String(value))
+        .digest();
+
+    // take first 4 bytes (32 bits)
+    return hash.readUInt32BE(0) >>> 0;
 }
 
 function hashToRing(value) {
-    return hash32(value) % 360;
+    return (hash32(value) / Math.pow(2, 32)) * 360;
 }
 
 function isStatefulMode(mode) {
@@ -208,10 +197,6 @@ function getRehashSampleKeys() {
 }
 
 function toServerSnapshot(serverState) {
-    const cacheTotal = serverState.cacheHits + serverState.cacheMisses;
-    const cacheHitRate = cacheTotal
-        ? (serverState.cacheHits / cacheTotal) * 100
-        : 0;
     const loadPct = serverState.capacity
         ? Math.min(100, (serverState.currentLoad / serverState.capacity) * 100)
         : 0;
@@ -223,9 +208,7 @@ function toServerSnapshot(serverState) {
         capacity: serverState.capacity,
         currentLoad: serverState.currentLoad,
         activeConnections: serverState.activeConnections,
-        cacheHitRate: Number(cacheHitRate.toFixed(1)),
-        loadPct: Number(loadPct.toFixed(1)),
-        cacheSize: serverState.cache.size
+        loadPct: Number(loadPct.toFixed(1))
     };
 }
 
@@ -313,20 +296,9 @@ function avg(values) {
     return total / values.length;
 }
 
-function avgLatencyFor(mode) {
-    const stat = metrics.modeLatency[mode];
-    if (!stat.count) return 0;
-    return stat.total / stat.count;
-}
-
 function getMetricsSnapshot() {
     return {
         totalRequests: metrics.totalRequests,
-        avgLatencyPerMode: {
-            stateless: Number(avgLatencyFor(MODES.STATELESS).toFixed(2)),
-            modN: Number(avgLatencyFor(MODES.MOD_N).toFixed(2)),
-            consistent: Number(avgLatencyFor(MODES.CONSISTENT).toFixed(2))
-        },
         lastRehash: {
             mode: metrics.lastRehash.mode,
             reason: metrics.lastRehash.reason,
@@ -522,9 +494,6 @@ function resetServerStatistics() {
         srv.count = 0;
         srv.currentLoad = 0;
         srv.activeConnections = 0;
-        srv.cacheHits = 0;
-        srv.cacheMisses = 0;
-        srv.cache.clear();
         srv.recentRequestTimes = [];
     });
     l4Index = 0;
@@ -784,7 +753,7 @@ io.on('connection', (socket) => {
                 statelessPolicy,
                 clientId: socket.id,
                 message: userMessage,
-                latencySeconds: 3,
+                latencySeconds: 0,
                 cacheHit: false,
                 migrated: false,
                 previousServerId: null,
@@ -794,12 +763,8 @@ io.on('connection', (socket) => {
         }
 
         const previousServerId = requestToServer.get(requestId) || null;
-        const cacheHit = Boolean(
-            targetServer &&
-            previousServerId === targetServer.id &&
-            targetServer.cache.has(requestId)
-        );
-        const latencySeconds = cacheHit ? 1 : 3;
+        const cacheHit = false;
+        const latencySeconds = 0;
         const migrated = Boolean(previousServerId && previousServerId !== targetServer.id);
 
         if (targetServer) {
@@ -807,29 +772,9 @@ io.on('connection', (socket) => {
             targetServer.count = (targetServer.count || 0) + 1;
             targetServer.recentRequestTimes.push(now);
             refreshServerLoad(targetServer, now);
-            targetServer.activeConnections += 1;
-
-            const existingHits = targetServer.cache.get(requestId) || 0;
-            targetServer.cache.set(requestId, existingHits + 1);
-            if (cacheHit) {
-                targetServer.cacheHits += 1;
-            } else {
-                targetServer.cacheMisses += 1;
-            }
-
-            setTimeout(() => {
-                const liveServer = servers.find((srv) => srv.id === targetServer.id);
-                if (!liveServer) return;
-                liveServer.activeConnections = Math.max(0, liveServer.activeConnections - 1);
-                refreshServerLoad(liveServer, Date.now());
-                io.emit('servers_updated', getServerSnapshots());
-                io.emit('metrics_update', getMetricsSnapshot());
-            }, latencySeconds * 1000);
         }
 
         metrics.totalRequests += 1;
-        metrics.modeLatency[currentMode].count += 1;
-        metrics.modeLatency[currentMode].total += latencySeconds;
 
         io.emit('latency_update', {
             requestId,

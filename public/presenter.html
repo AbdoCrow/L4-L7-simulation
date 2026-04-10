@@ -12,7 +12,7 @@
         <header>
             <div>
                 <h1 class="text-gradient">Stateful Load Balancer Simulation</h1>
-                <div class="Subheading">Rehashing, Cache Locality, and Latency Behavior</div>
+                <div class="Subheading">Rehashing and Hash Routing Behavior</div>
             </div>
             <div style="display: flex; flex-direction: column; gap: 0.5rem; align-items: flex-end;">
                 <div class="toggle-wrapper" id="mode-toggle">
@@ -41,16 +41,8 @@
                             <strong id="metric-total-requests">0</strong>
                         </div>
                         <div class="metric-card">
-                            <label>Avg Latency (Stateless)</label>
-                            <strong id="metric-lat-stateless">0.00s</strong>
-                        </div>
-                        <div class="metric-card">
-                            <label>Avg Latency (Mod-N)</label>
-                            <strong id="metric-lat-modn">0.00s</strong>
-                        </div>
-                        <div class="metric-card">
-                            <label>Avg Latency (Consistent)</label>
-                            <strong id="metric-lat-consistent">0.00s</strong>
+                            <label>Active Servers</label>
+                            <strong id="metric-server-count">0</strong>
                         </div>
                     </div>
 
@@ -99,6 +91,7 @@
                 <div class="config-section">
                     <h3>Add Server</h3>
                     <form class="add-server-form" id="add-server-form">
+                        <button type="submit" class="primary">Deploy Server</button>
                         <input type="text" id="srv-name" placeholder="Server Name (e.g. Server D)" required>
                         <select id="srv-path" required>
                             <option value="/api">/api (API Traffic)</option>
@@ -108,7 +101,6 @@
                             <option value="/other">/other (Wildcard)</option>
                         </select>
                         <input type="number" id="srv-capacity" min="1" max="200" value="12" required>
-                        <button type="submit" class="primary">Deploy Server</button>
                     </form>
                 </div>
             </div>
@@ -154,9 +146,7 @@
         const rehashImpactLabelEl = document.getElementById('rehash-impact-label');
 
         const totalRequestsEl = document.getElementById('metric-total-requests');
-        const latStatelessEl = document.getElementById('metric-lat-stateless');
-        const latModNEl = document.getElementById('metric-lat-modn');
-        const latConsistentEl = document.getElementById('metric-lat-consistent');
+        const serverCountEl = document.getElementById('metric-server-count');
         const chartModNEl = document.getElementById('chart-modn');
         const chartConsistentEl = document.getElementById('chart-consistent');
         const chartModNValEl = document.getElementById('chart-modn-val');
@@ -236,11 +226,7 @@
             if (!metricsState) return;
 
             totalRequestsEl.textContent = metricsState.totalRequests || 0;
-
-            const avg = metricsState.avgLatencyPerMode || {};
-            latStatelessEl.textContent = `${(Number(avg.stateless) || 0).toFixed(2)}s`;
-            latModNEl.textContent = `${(Number(avg.modN) || 0).toFixed(2)}s`;
-            latConsistentEl.textContent = `${(Number(avg.consistent) || 0).toFixed(2)}s`;
+            serverCountEl.textContent = Array.isArray(servers) ? servers.length : 0;
 
             const comparison = metricsState.migrationCostComparison || {};
             setBarValue(chartModNEl, chartModNValEl, comparison.modN);
@@ -472,6 +458,16 @@
             ctx.lineWidth = 3;
             ctx.stroke();
 
+            if (currentMode === MODES.MOD_N) {
+                const sectorCount = Math.max(servers.length, 1);
+                for (let i = 0; i < sectorCount; i++) {
+                    const start = (i * 360) / sectorCount;
+                    const end = ((i + 1) * 360) / sectorCount;
+                    const color = FALLBACK_RING_COLORS[i % FALLBACK_RING_COLORS.length];
+                    drawRingSegment(start, end, color, 9);
+                }
+            }
+
             const shouldFlash = Date.now() < ringFlashUntil;
             const affectedRanges = shouldFlash ? ringFlashRanges : [];
 
@@ -554,13 +550,6 @@
                 ctx.textBaseline = 'middle';
                 ctx.fillText('Client Ingress', lbNode.x, lbNode.y);
 
-                ctx.strokeStyle = 'rgba(59, 130, 246, 0.22)';
-                ctx.lineWidth = 1.5;
-                ctx.beginPath();
-                ctx.moveTo(lbNode.x + lbNode.w / 2, lbNode.y);
-                ctx.lineTo(ringCenter.x - ringRadius, ringCenter.y);
-                ctx.stroke();
-
                 ctx.strokeStyle = 'rgba(96, 165, 250, 0.2)';
                 ctx.lineWidth = 1;
                 serverNodes.forEach((srv) => {
@@ -624,8 +613,6 @@
 
         function getPacketColor(routeData) {
             if (routeData.migrated) return '#ef4444';
-            if (routeData.cacheHit) return '#22c55e';
-            if (routeData.latencySeconds >= 3) return '#facc15';
             return '#60a5fa';
         }
 
@@ -721,15 +708,6 @@
                     ctx.fillStyle = 'white';
                     ctx.fillText(packet.route.message, packet.x, packet.y - 14);
                 }
-
-                const latency = Number(packet.route.latencySeconds) || 0;
-                if (latency > 0) {
-                    ctx.shadowBlur = 0;
-                    ctx.fillStyle = latency <= 1 ? '#22c55e' : '#facc15';
-                    ctx.font = '700 11px Outfit';
-                    ctx.textAlign = 'left';
-                    ctx.fillText(`${latency}s`, packet.x + 6, packet.y - 6);
-                }
             }
             ctx.shadowBlur = 0;
         }
@@ -780,16 +758,16 @@
                 ctx.fillText(`Rehash Impact: ${rehash.toFixed(1)}% affected`, 16, 44);
             }
 
-            ctx.fillStyle = '#22c55e';
+            ctx.fillStyle = '#60a5fa';
             ctx.fillRect(16, 58, 10, 10);
             ctx.fillStyle = '#cbd5e1';
             ctx.font = '600 11px Outfit';
-            ctx.fillText('1s cache hit', 30, 67);
+            ctx.fillText('Normal routing', 30, 67);
 
-            ctx.fillStyle = '#facc15';
+            ctx.fillStyle = '#ef4444';
             ctx.fillRect(120, 58, 10, 10);
             ctx.fillStyle = '#cbd5e1';
-            ctx.fillText('3s migration', 136, 67);
+            ctx.fillText('Rehash migration', 136, 67);
         }
 
         // Socket Events
@@ -916,7 +894,6 @@
             serverListEl.innerHTML = '';
             servers.forEach(srv => {
                 const loadPct = Math.max(0, Math.min(100, Number(srv.loadPct) || 0));
-                const cacheHitRate = Number(srv.cacheHitRate) || 0;
                 const div = document.createElement('div');
                 div.className = 'server-item';
                 div.innerHTML = `
@@ -932,8 +909,8 @@
                                 <div class="load-fill" style="width:${loadPct.toFixed(1)}%"></div>
                             </div>
                             <div class="srv-metric-row">
-                                <small>Cache ${cacheHitRate.toFixed(1)}%</small>
                                 <small>Active ${srv.activeConnections || 0}</small>
+                                <small>Path ${srv.path}</small>
                             </div>
                         </div>
                     </div>

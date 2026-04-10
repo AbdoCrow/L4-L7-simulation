@@ -157,14 +157,10 @@
             
             const time = new Date().toLocaleTimeString();
             const reqInfo = data.requestId ? `#${data.requestId}` : (data.request && data.request.requestId ? `#${data.request.requestId}` : '');
-            const latency = Number(data.latencySeconds) || 0;
-            const latencyTag = latency > 0
-                ? `<span style="color:${latency <= 1 ? '#22c55e' : '#facc15'}; font-weight:700;">${latency}s</span>`
-                : '';
 
             if (data.target) {
                 el.classList.add('success');
-                el.innerHTML = `[${time}] ${reqInfo} ${data.path} <span style="color:#60a5fa">→</span> ${data.targetName} ${latencyTag}`;
+                el.innerHTML = `[${time}] ${reqInfo} ${data.path} <span style="color:#60a5fa">→</span> ${data.targetName}`;
             } else {
                 el.classList.add('drop');
                 el.innerHTML = `[${time}] ${reqInfo} ${data.path} <span style="color:#ef4444">dropped</span> (No Servers)`;

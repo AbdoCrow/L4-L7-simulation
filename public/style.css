@@ -62,6 +62,7 @@ h1 {
 
 .text-gradient {
     background: linear-gradient(135deg, #60a5fa, #a78bfa);
+    background-clip: text;
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
 }
@@ -339,7 +340,7 @@ button.primary:hover {
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
-    margin-top: 1rem;
+    margin-top: 0.25rem;
 }
 
 input, select {
