@@ -72,16 +72,39 @@
 
         let spamInterval = null;
 
+        function formatModeLabel(modePayload, statelessPolicy) {
+            if (typeof modePayload === 'string') {
+                if (modePayload === 'L4' || modePayload === 'L7') {
+                    return `Stateless (${modePayload})`;
+                }
+                if (modePayload === 'STATELESS') {
+                    return `Stateless (${statelessPolicy || 'L4'})`;
+                }
+                if (modePayload === 'MOD_N') {
+                    return 'Mod-N Hashing';
+                }
+                if (modePayload === 'CONSISTENT') {
+                    return 'Consistent Hashing';
+                }
+                return modePayload;
+            }
+            if (modePayload && typeof modePayload === 'object') {
+                if (modePayload.label) return modePayload.label;
+                return formatModeLabel(modePayload.mode, modePayload.statelessPolicy);
+            }
+            return 'Connecting...';
+        }
+
         socket.on('connect', () => {
             clientIdEl.textContent = socket.id.substr(0, 6);
         });
 
         socket.on('initial_state', (data) => {
-            modeEl.textContent = data.mode;
+            modeEl.textContent = formatModeLabel(data.mode, data.statelessPolicy);
         });
 
-        socket.on('mode_changed', (mode) => {
-            modeEl.textContent = mode;
+        socket.on('mode_changed', (payload) => {
+            modeEl.textContent = formatModeLabel(payload, payload && payload.statelessPolicy);
         });
 
         // Listen for route updates related to us
@@ -133,12 +156,18 @@
             el.className = 'log-entry';
             
             const time = new Date().toLocaleTimeString();
+            const reqInfo = data.requestId ? `#${data.requestId}` : (data.request && data.request.requestId ? `#${data.request.requestId}` : '');
+            const latency = Number(data.latencySeconds) || 0;
+            const latencyTag = latency > 0
+                ? `<span style="color:${latency <= 1 ? '#22c55e' : '#facc15'}; font-weight:700;">${latency}s</span>`
+                : '';
+
             if (data.target) {
                 el.classList.add('success');
-                el.innerHTML = `[${time}] ${data.path} <span style="color:#60a5fa">→</span> ${data.targetName}`;
+                el.innerHTML = `[${time}] ${reqInfo} ${data.path} <span style="color:#60a5fa">→</span> ${data.targetName} ${latencyTag}`;
             } else {
                 el.classList.add('drop');
-                el.innerHTML = `[${time}] ${data.path} <span style="color:#ef4444">dropped</span> (No Servers)`;
+                el.innerHTML = `[${time}] ${reqInfo} ${data.path} <span style="color:#ef4444">dropped</span> (No Servers)`;
             }
             
             logPanel.prepend(el);
