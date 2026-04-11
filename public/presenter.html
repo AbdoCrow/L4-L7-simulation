@@ -89,7 +89,6 @@
                             <option value="/admin">/admin (Internal)</option>
                             <option value="/other">/other (Wildcard)</option>
                         </select>
-                        <input type="number" id="srv-capacity" min="1" max="200" value="12" required>
                     </form>
                 </div>
 
@@ -990,14 +989,12 @@
             e.preventDefault();
             const name = document.getElementById('srv-name').value;
             const path = document.getElementById('srv-path').value;
-            const capacity = Number(document.getElementById('srv-capacity').value) || 12;
             const newId = 'srv_' + Math.random().toString(36).substr(2, 6);
             
-            servers.push({ id: newId, name, path, capacity });
+            servers.push({ id: newId, name, path, });
             socket.emit('update_servers', servers);
             
             document.getElementById('srv-name').value = '';
-            document.getElementById('srv-capacity').value = '12';
         });
 
         function animate() {
