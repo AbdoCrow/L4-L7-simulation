@@ -62,11 +62,13 @@ h1 {
 
 .text-gradient {
     background: linear-gradient(135deg, #60a5fa, #a78bfa);
+    background-clip: text;
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
 }
 
-Subheading {
+Subheading,
+.Subheading {
     color: var(--text-secondary);
     font-size: 0.9rem;
     margin-top: 0.25rem;
@@ -132,6 +134,16 @@ button.primary:hover {
     box-shadow: 0 0 15px var(--accent-glow);
 }
 
+.toggle-wrapper.compact {
+    gap: 0.4rem;
+    padding: 0.3rem;
+}
+
+.toggle-wrapper.compact .toggle-option {
+    padding: 0.35rem 0.75rem;
+    font-size: 0.8rem;
+}
+
 /* Presenter Layout */
 .dashboard-grid {
     display: grid;
@@ -150,6 +162,12 @@ button.primary:hover {
     padding: 1rem;
 }
 
+#sim-canvas {
+    width: 100%;
+    height: 100%;
+    min-height: 520px;
+}
+
 .config-panel {
     padding: 1.5rem;
     display: flex;
@@ -162,6 +180,104 @@ button.primary:hover {
     font-size: 1.1rem;
     margin-bottom: 1rem;
     color: var(--text-secondary);
+}
+
+.hash-settings-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+}
+
+.hash-settings-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.hash-settings-controls input {
+    flex: 1;
+}
+
+.hash-settings-controls button {
+    white-space: nowrap;
+    padding: 0.65rem 0.9rem;
+}
+
+.metrics-panel {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 1rem;
+}
+
+.metric-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+}
+
+.metric-card {
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: rgba(2, 6, 23, 0.45);
+    padding: 0.5rem 0.6rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+
+.metric-card label {
+    font-size: 0.65rem;
+    color: var(--text-secondary);
+}
+
+.metric-card strong {
+    font-size: 0.95rem;
+    color: #e2e8f0;
+}
+
+.rehash-impact {
+    margin-top: 0.75rem;
+    color: #f87171;
+    font-size: 0.84rem;
+    font-weight: 700;
+}
+
+.migration-chart {
+    margin-top: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+}
+
+.chart-row {
+    display: grid;
+    grid-template-columns: 1.3fr 2fr auto;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+}
+
+.chart-track {
+    height: 8px;
+    border-radius: 999px;
+    background: rgba(148, 163, 184, 0.2);
+    overflow: hidden;
+}
+
+.chart-fill {
+    height: 100%;
+    width: 0;
+    transition: width 0.25s ease;
+}
+
+.chart-fill.modn {
+    background: linear-gradient(90deg, #ef4444, #f59e0b);
+}
+
+.chart-fill.consistent {
+    background: linear-gradient(90deg, #60a5fa, #10b981);
 }
 
 .server-list {
@@ -195,6 +311,38 @@ button.primary:hover {
     border-radius: 4px;
 }
 
+.srv-metrics {
+    margin-top: 0.45rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.srv-metric-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.srv-metric-row small {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+}
+
+.load-bar {
+    width: 100%;
+    height: 8px;
+    border-radius: 999px;
+    background: rgba(148, 163, 184, 0.2);
+    overflow: hidden;
+}
+
+.load-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #22d3ee, #60a5fa);
+}
+
 .delete-btn {
     padding: 0.5rem;
     border: none;
@@ -213,7 +361,7 @@ button.primary:hover {
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
-    margin-top: 1rem;
+    margin-top: 0.25rem;
 }
 
 input, select {
@@ -362,3 +510,51 @@ input:focus, select:focus {
 }
 .log-entry.success { color: var(--success); }
 .log-entry.drop { color: var(--danger); }
+
+@media (max-width: 1180px) {
+    .dashboard-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .config-panel {
+        max-height: none;
+    }
+
+    #sim-canvas {
+        min-height: 460px;
+    }
+}
+
+@media (max-width: 700px) {
+    .container {
+        padding: 1rem;
+    }
+
+    header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.8rem;
+    }
+
+    .toggle-wrapper {
+        gap: 0.4rem;
+    }
+
+    .toggle-option {
+        padding: 0.45rem 0.7rem;
+        font-size: 0.8rem;
+    }
+
+    .metric-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .chart-row {
+        grid-template-columns: 1fr;
+        gap: 0.2rem;
+    }
+
+    #sim-canvas {
+        min-height: 380px;
+    }
+}
