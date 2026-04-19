@@ -43,6 +43,7 @@ const localIP = getLocalIP();
 const PORT = process.env.PORT || 3000;
 
 // Priority: Environmental variable (for Tunnels) > Local IP
+// tm ntr ablakash
 const mobileUrl = process.env.PUBLIC_URL || `http://${localIP}:${PORT}`;
 
 console.log(`Setting up QR code for: ${mobileUrl}`);
@@ -101,6 +102,7 @@ io.on('connection', (socket) => {
                 userMessage = null;
             } else {
                 // Take only the first word, max 12 chars
+                // what if A7A?
                 userMessage = data.message.trim().split(/\s+/)[0].substring(0, 12);
                 messageCooldowns.set(socket.id, now);
             }
