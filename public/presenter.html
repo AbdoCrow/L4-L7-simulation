@@ -1,1018 +1,1347 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Stateful Load Balancer Simulation - Presenter</title>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css" />
     <script src="/socket.io/socket.io.js"></script>
-</head>
-<body>
-    <div class="container" style="margin-top: 2rem;">
-        <header>
-            <div>
-                <h1 class="text-gradient">Stateful Load Balancer Simulation</h1>
-                <div class="Subheading">Rehashing and Hash Routing Behavior</div>
-            </div>
-            <div style="display: flex; flex-direction: column; gap: 0.5rem; align-items: flex-end;">
-                <div class="toggle-wrapper" id="mode-toggle">
-                    <div class="toggle-option mode-option active" data-mode="STATELESS">Stateless</div>
-                    <div class="toggle-option mode-option" data-mode="MOD_N">Mod-N Hashing</div>
-                    <div class="toggle-option mode-option" data-mode="CONSISTENT">Consistent Hashing</div>
-                </div>
-                <div class="toggle-wrapper compact" id="stateless-policy-toggle">
-                    <div class="toggle-option policy-option active" data-policy="L4">L4</div>
-                    <div class="toggle-option policy-option" data-policy="L7">L7</div>
-                </div>
-            </div>
-        </header>
-
-        <div class="dashboard-grid">
-            <div class="visualization-panel glass">
-                <canvas id="sim-canvas"></canvas>
-            </div>
-
-            <div class="config-panel glass">
-                <div class="config-section metrics-panel">
-                    <h3>Live Metrics</h3>
-                    <div class="metric-grid">
-                        <div class="metric-card">
-                            <label>Total Requests</label>
-                            <strong id="metric-total-requests">0</strong>
-                        </div>
-                        <div class="metric-card">
-                            <label>Active Servers</label>
-                            <strong id="metric-server-count">0</strong>
-                        </div>
-                    </div>
-
-                    <div class="rehash-impact" id="rehash-impact-label">Rehash Impact: 0.0% affected</div>
-
-                    <div class="migration-chart" id="migration-chart">
-                        <div class="chart-row">
-                            <span>Mod-N Rehash Cost</span>
-                            <div class="chart-track">
-                                <div id="chart-modn" class="chart-fill modn"></div>
-                            </div>
-                            <span id="chart-modn-val">0.0%</span>
-                        </div>
-                        <div class="chart-row">
-                            <span>Consistent Rehash Cost</span>
-                            <div class="chart-track">
-                                <div id="chart-consistent" class="chart-fill consistent"></div>
-                            </div>
-                            <span id="chart-consistent-val">0.0%</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="config-section">
-                    <h3>Hash Settings</h3>
-                    <div class="hash-settings-row">
-                        <label for="vnode-count-input" style="font-size:0.8rem; color: var(--text-secondary);">Virtual Nodes Per Server (k)</label>
-                        <div class="hash-settings-controls">
-                            <input type="number" id="vnode-count-input" min="1" max="256" step="1" value="10">
-                            <button type="button" id="apply-vnode-btn" class="primary">Apply k</button>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="config-section">
-                    <h3>Add Server</h3>
-                    <form class="add-server-form" id="add-server-form">
-                        <button type="submit" class="primary">Deploy Server</button>
-                        <input type="text" id="srv-name" placeholder="Server Name (e.g. Server D)" required>
-                        <select id="srv-path" required>
-                            <option value="/api">/api (API Traffic)</option>
-                            <option value="/images">/images (Static Assets)</option>
-                            <option value="/video">/video (Video Stream)</option>
-                            <option value="/admin">/admin (Internal)</option>
-                            <option value="/other">/other (Wildcard)</option>
-                        </select>
-                    </form>
-                </div>
-
-                <div class="config-section qr-container" style="margin-top: 0; padding-top: 0; background: none; border: none;">
-                    <h3 style="margin-bottom: 0.5rem; font-size: 0.9rem;">Join Simulation</h3>
-                    <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
-                        <input type="text" id="public-url-input" placeholder="Tunnel URL" style="flex:1; padding: 0.4rem; font-size: 0.8rem;">
-                        <button onclick="updatePublicUrl()" class="primary" style="padding: 0.4rem; border-radius: 4px; font-size: 0.8rem;">Update</button>
-                    </div>
-                    <img id="qr-code" src="" alt="QR Code" style="width: 120px; height: 120px;">
-                    <div style="font-size: 0.75rem;">
-                        <a id="mobile-link" class="mobile-link" href="#" target="_blank">Connect Link</a>
-                    </div>
-                </div>
-
-                <div class="config-section">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-                        <h3 style="margin-bottom: 0;">Backend Servers</h3>
-                        <button onclick="resetCounters()" style="padding: 0.3rem 0.6rem; font-size: 0.7rem; background: var(--danger); border: none; color: white; border-radius: 4px; cursor: pointer;">Reset Counters</button>
-                    </div>
-                    <div class="server-list" id="server-list">
-                        <!-- Server list rendered dynamically -->
-                    </div>
-                </div>
-            </div>
+  </head>
+  <body>
+    <div class="container" style="margin-top: 2rem">
+      <header>
+        <div>
+          <h1 class="text-gradient">Stateful Load Balancer Simulation</h1>
+          <div class="Subheading">Rehashing and Hash Routing Behavior</div>
         </div>
+        <div
+          style="
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            align-items: flex-end;
+          "
+        >
+          <div class="toggle-wrapper" id="mode-toggle">
+            <div class="toggle-option mode-option active" data-mode="STATELESS">
+              Stateless
+            </div>
+            <div class="toggle-option mode-option" data-mode="MOD_N">
+              Mod-N Hashing
+            </div>
+            <div class="toggle-option mode-option" data-mode="CONSISTENT">
+              Consistent Hashing
+            </div>
+          </div>
+          <div class="toggle-wrapper compact" id="stateless-policy-toggle">
+            <div
+              class="toggle-option policy-option active"
+              data-policy="L4_ROUND_ROBIN"
+            >
+              L4 (Round Robin)
+            </div>
+            <div
+              class="toggle-option policy-option"
+              data-policy="L4_LEAST_CONN"
+            >
+              L4 (Least Connections)
+            </div>
+            <div class="toggle-option policy-option" data-policy="L7_PATH">
+              L7 (Path-Aware)
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <div class="dashboard-grid">
+        <div class="visualization-panel glass">
+          <canvas id="sim-canvas"></canvas>
+        </div>
+
+        <div class="config-panel glass">
+          <div class="config-section metrics-panel">
+            <h3>Live Metrics</h3>
+            <div class="metric-grid">
+              <div class="metric-card">
+                <label>Total Requests</label>
+                <strong id="metric-total-requests">0</strong>
+              </div>
+              <div class="metric-card">
+                <label>Active Servers</label>
+                <strong id="metric-server-count">0</strong>
+              </div>
+            </div>
+
+            <div class="rehash-impact" id="rehash-impact-label">
+              Rehash Impact: 0.0% affected
+            </div>
+
+            <div class="migration-chart" id="migration-chart">
+              <div class="chart-row">
+                <span>Mod-N Rehash Cost</span>
+                <div class="chart-track">
+                  <div id="chart-modn" class="chart-fill modn"></div>
+                </div>
+                <span id="chart-modn-val">0.0%</span>
+              </div>
+              <div class="chart-row">
+                <span>Consistent Rehash Cost</span>
+                <div class="chart-track">
+                  <div
+                    id="chart-consistent"
+                    class="chart-fill consistent"
+                  ></div>
+                </div>
+                <span id="chart-consistent-val">0.0%</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="config-section">
+            <h3>Hash Settings</h3>
+            <div class="hash-settings-row">
+              <label
+                for="vnode-count-input"
+                style="font-size: 0.8rem; color: var(--text-secondary)"
+                >Virtual Nodes Per Server (k)</label
+              >
+              <div class="hash-settings-controls">
+                <input
+                  type="number"
+                  id="vnode-count-input"
+                  min="1"
+                  max="256"
+                  step="1"
+                  value="10"
+                />
+                <button type="button" id="apply-vnode-btn" class="primary">
+                  Apply k
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="config-section">
+            <h3>Add Server</h3>
+            <form class="add-server-form" id="add-server-form">
+              <button type="submit" class="primary">Deploy Server</button>
+              <input
+                type="text"
+                id="srv-name"
+                placeholder="Server Name (e.g. Server D)"
+                required
+              />
+              <select id="srv-path" required>
+                <option value="/api">/api (API Traffic)</option>
+                <option value="/images">/images (Static Assets)</option>
+                <option value="/admin">/admin (Internal)</option>
+              </select>
+            </form>
+          </div>
+
+          <div
+            class="config-section qr-container"
+            style="
+              margin-top: 0;
+              padding-top: 0;
+              background: none;
+              border: none;
+            "
+          >
+            <h3 style="margin-bottom: 0.5rem; font-size: 0.9rem">
+              Join Simulation
+            </h3>
+            <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem">
+              <input
+                type="text"
+                id="public-url-input"
+                placeholder="Tunnel URL"
+                style="flex: 1; padding: 0.4rem; font-size: 0.8rem"
+              />
+              <button
+                onclick="updatePublicUrl()"
+                class="primary"
+                style="padding: 0.4rem; border-radius: 4px; font-size: 0.8rem"
+              >
+                Update
+              </button>
+            </div>
+            <img
+              id="qr-code"
+              src=""
+              alt="QR Code"
+              style="width: 120px; height: 120px"
+            />
+            <div style="font-size: 0.75rem">
+              <a id="mobile-link" class="mobile-link" href="#" target="_blank"
+                >Connect Link</a
+              >
+            </div>
+          </div>
+
+          <div class="config-section">
+            <div
+              style="
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 1rem;
+              "
+            >
+              <h3 style="margin-bottom: 0">Backend Servers</h3>
+              <button
+                onclick="resetCounters()"
+                style="
+                  padding: 0.3rem 0.6rem;
+                  font-size: 0.7rem;
+                  background: var(--danger);
+                  border: none;
+                  color: white;
+                  border-radius: 4px;
+                  cursor: pointer;
+                "
+              >
+                Reset Counters
+              </button>
+            </div>
+            <div class="server-list" id="server-list">
+              <!-- Server list rendered dynamically -->
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <script>
-        const MODES = {
-            STATELESS: 'STATELESS',
-            MOD_N: 'MOD_N',
-            CONSISTENT: 'CONSISTENT'
-        };
+      const MODES = {
+        STATELESS: "STATELESS",
+        MOD_N: "MOD_N",
+        CONSISTENT: "CONSISTENT",
+      };
 
-        const FALLBACK_RING_COLORS = ['#60a5fa', '#10b981', '#a78bfa', '#f59e0b', '#22d3ee', '#fbbf24'];
+      const STATELESS_POLICIES = {
+        L4_ROUND_ROBIN: "L4_ROUND_ROBIN",
+        L4_LEAST_CONN: "L4_LEAST_CONN",
+        L7_PATH: "L7_PATH",
+      };
 
-        const socket = io();
-        let currentMode = MODES.STATELESS;
-        let statelessPolicy = 'L4';
-        let servers = [];
-        let hashMapState = {
-            ring: [],
-            keyMappings: [],
-            affectedRanges: [],
-            rehashImpact: 0,
-            virtualNodesPerServer: 10
-        };
-        let metricsState = null;
-        let lastRehashEvent = {
-            mode: MODES.MOD_N,
-            affectedPercent: 0,
-            affectedRanges: [],
-            changedSamples: []
-        };
+      const FALLBACK_RING_COLORS = [
+        "#60a5fa",
+        "#10b981",
+        "#a78bfa",
+        "#f59e0b",
+        "#22d3ee",
+        "#fbbf24",
+      ];
 
-        // DOM Elements
-        const modeOptions = document.querySelectorAll('.mode-option');
-        const policyOptions = document.querySelectorAll('.policy-option');
-        const policyToggle = document.getElementById('stateless-policy-toggle');
-        const serverListEl = document.getElementById('server-list');
-        const addServerForm = document.getElementById('add-server-form');
-        const vnodeCountInputEl = document.getElementById('vnode-count-input');
-        const applyVnodeBtn = document.getElementById('apply-vnode-btn');
-        const qrCodeImg = document.getElementById('qr-code');
-        const mobileLinkA = document.getElementById('mobile-link');
-        const rehashImpactLabelEl = document.getElementById('rehash-impact-label');
+      const socket = io();
+      let currentMode = MODES.STATELESS;
+      let statelessPolicy = STATELESS_POLICIES.L4_ROUND_ROBIN;
+      let servers = [];
+      let hashMapState = {
+        ring: [],
+        keyMappings: [],
+        affectedRanges: [],
+        rehashImpact: 0,
+        virtualNodesPerServer: 10,
+      };
+      let metricsState = null;
+      let lastRehashEvent = {
+        mode: MODES.MOD_N,
+        affectedPercent: 0,
+        affectedRanges: [],
+        changedSamples: [],
+      };
 
-        const totalRequestsEl = document.getElementById('metric-total-requests');
-        const serverCountEl = document.getElementById('metric-server-count');
-        const chartModNEl = document.getElementById('chart-modn');
-        const chartConsistentEl = document.getElementById('chart-consistent');
-        const chartModNValEl = document.getElementById('chart-modn-val');
-        const chartConsistentValEl = document.getElementById('chart-consistent-val');
+      // DOM Elements
+      const modeOptions = document.querySelectorAll(".mode-option");
+      const policyOptions = document.querySelectorAll(".policy-option");
+      const policyToggle = document.getElementById("stateless-policy-toggle");
+      const serverListEl = document.getElementById("server-list");
+      const addServerForm = document.getElementById("add-server-form");
+      const vnodeCountInputEl = document.getElementById("vnode-count-input");
+      const applyVnodeBtn = document.getElementById("apply-vnode-btn");
+      const qrCodeImg = document.getElementById("qr-code");
+      const mobileLinkA = document.getElementById("mobile-link");
+      const rehashImpactLabelEl = document.getElementById(
+        "rehash-impact-label",
+      );
 
-        const canvas = document.getElementById('sim-canvas');
-        const ctx = canvas.getContext('2d');
+      const totalRequestsEl = document.getElementById("metric-total-requests");
+      const serverCountEl = document.getElementById("metric-server-count");
+      const chartModNEl = document.getElementById("chart-modn");
+      const chartConsistentEl = document.getElementById("chart-consistent");
+      const chartModNValEl = document.getElementById("chart-modn-val");
+      const chartConsistentValEl = document.getElementById(
+        "chart-consistent-val",
+      );
 
-        // High-DPI Canvas Support
-        function resizeCanvas() {
-            const dpr = window.devicePixelRatio || 1;
-            const rect = canvas.parentElement.getBoundingClientRect();
-            
-            canvas.width = rect.width * dpr;
-            canvas.height = rect.height * dpr;
-            
-            canvas.style.width = `${rect.width}px`;
-            canvas.style.height = `${rect.height}px`;
-            
-            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-            
-            updateLayoutGeometry();
+      const canvas = document.getElementById("sim-canvas");
+      const ctx = canvas.getContext("2d");
+
+      // High-DPI Canvas Support
+      function resizeCanvas() {
+        const dpr = window.devicePixelRatio || 1;
+        const rect = canvas.parentElement.getBoundingClientRect();
+
+        canvas.width = rect.width * dpr;
+        canvas.height = rect.height * dpr;
+
+        canvas.style.width = `${rect.width}px`;
+        canvas.style.height = `${rect.height}px`;
+
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+        updateLayoutGeometry();
+      }
+      window.addEventListener("resize", resizeCanvas);
+
+      // Animation State
+      const packets = [];
+      const migrations = [];
+      const serverShakeMap = new Map();
+      const dropBursts = [];
+
+      let lbNode = { x: 0, y: 0, w: 130, h: 62, label: "Load Balancer" };
+      let serverNodes = [];
+      let ringNodes = [];
+      let ringVirtualPositions = [];
+      let ringServerAnchors = new Map();
+      let ringCenter = { x: 0, y: 0 };
+      let ringRadius = 100;
+      const RING_FLASH_MS = 3000;
+      let ringFlashUntil = 0;
+      let ringFlashRanges = [];
+
+      function hashToRing(value) {
+        let hash = 2166136261;
+        const text = String(value);
+        for (let i = 0; i < text.length; i++) {
+          hash ^= text.charCodeAt(i);
+          hash +=
+            (hash << 1) +
+            (hash << 4) +
+            (hash << 7) +
+            (hash << 8) +
+            (hash << 24);
         }
-        window.addEventListener('resize', resizeCanvas);
+        return (hash >>> 0) % 360;
+      }
 
-        // Animation State
-        const packets = [];
-        const migrations = [];
+      function getStatelessPolicyLabel(policy) {
+        if (policy === STATELESS_POLICIES.L4_ROUND_ROBIN)
+          return "L4 Round Robin";
+        if (policy === STATELESS_POLICIES.L4_LEAST_CONN)
+          return "L4 Least Connections";
+        if (policy === STATELESS_POLICIES.L7_PATH) return "L7 Path-Aware";
+        return policy || "L4 Round Robin";
+      }
 
-        let lbNode = { x: 0, y: 0, w: 130, h: 62, label: 'Load Balancer' };
-        let serverNodes = [];
-        let ringNodes = [];
-        let ringVirtualPositions = [];
-        let ringServerAnchors = new Map();
-        let ringCenter = { x: 0, y: 0 };
-        let ringRadius = 100;
-        const RING_FLASH_MS = 3000;
-        let ringFlashUntil = 0;
-        let ringFlashRanges = [];
-
-        function hashToRing(value) {
-            let hash = 2166136261;
-            const text = String(value);
-            for (let i = 0; i < text.length; i++) {
-                hash ^= text.charCodeAt(i);
-                hash +=
-                    (hash << 1) +
-                    (hash << 4) +
-                    (hash << 7) +
-                    (hash << 8) +
-                    (hash << 24);
-            }
-            return (hash >>> 0) % 360;
+      function modeLabel() {
+        if (currentMode === MODES.STATELESS) {
+          return `Stateless (${getStatelessPolicyLabel(statelessPolicy)})`;
         }
-
-        function modeLabel() {
-            if (currentMode === MODES.STATELESS) {
-                return `Stateless (${statelessPolicy})`;
-            }
-            if (currentMode === MODES.MOD_N) {
-                return 'Mod-N Hashing';
-            }
-            return 'Consistent Hashing';
+        if (currentMode === MODES.MOD_N) {
+          return "Mod-N Hashing";
         }
+        return "Consistent Hashing";
+      }
 
-        function isStatefulMode(mode) {
-            return mode === MODES.MOD_N || mode === MODES.CONSISTENT;
+      function isStatefulMode(mode) {
+        return mode === MODES.MOD_N || mode === MODES.CONSISTENT;
+      }
+
+      function normalizeVirtualNodeCount(value) {
+        const parsed = Number(value);
+        if (!Number.isFinite(parsed)) return 10;
+        return Math.max(1, Math.min(256, Math.round(parsed)));
+      }
+
+      function syncVirtualNodeInput(force = false) {
+        if (!vnodeCountInputEl) return;
+        const vnodeCount = normalizeVirtualNodeCount(
+          hashMapState.virtualNodesPerServer || 10,
+        );
+        if (force || document.activeElement !== vnodeCountInputEl) {
+          vnodeCountInputEl.value = String(vnodeCount);
         }
-
-        function normalizeVirtualNodeCount(value) {
-            const parsed = Number(value);
-            if (!Number.isFinite(parsed)) return 10;
-            return Math.max(1, Math.min(256, Math.round(parsed)));
-        }
-
-        function syncVirtualNodeInput(force = false) {
-            if (!vnodeCountInputEl) return;
-            const vnodeCount = normalizeVirtualNodeCount(hashMapState.virtualNodesPerServer || 10);
-            if (force || document.activeElement !== vnodeCountInputEl) {
-                vnodeCountInputEl.value = String(vnodeCount);
-            }
-        }
-
-        function submitVirtualNodeCount() {
-            if (!vnodeCountInputEl) return;
-            const nextValue = normalizeVirtualNodeCount(vnodeCountInputEl.value);
-            vnodeCountInputEl.value = String(nextValue);
-            socket.emit('set_virtual_nodes', { k: nextValue });
-        }
-
-        function setBarValue(barEl, valueEl, numericValue) {
-            const safeValue = Math.max(0, Math.min(100, Number(numericValue) || 0));
-            barEl.style.width = `${safeValue}%`;
-            valueEl.textContent = `${safeValue.toFixed(1)}%`;
-        }
-
-        function updateMetricsUI() {
-            if (!metricsState) return;
-
-            totalRequestsEl.textContent = metricsState.totalRequests || 0;
-            serverCountEl.textContent = Array.isArray(servers) ? servers.length : 0;
-
-            const comparison = metricsState.migrationCostComparison || {};
-            setBarValue(chartModNEl, chartModNValEl, comparison.modN);
-            setBarValue(chartConsistentEl, chartConsistentValEl, comparison.consistent);
-
-            const rehashPercent = Number(
-                (metricsState.lastRehash && metricsState.lastRehash.affectedPercent) ||
-                lastRehashEvent.affectedPercent ||
-                0
-            );
-            rehashImpactLabelEl.textContent = `Rehash Impact: ${rehashPercent.toFixed(1)}% affected`;
-        }
-
-        function updateModeUI() {
-            modeOptions.forEach((opt) => {
-                if (opt.getAttribute('data-mode') === currentMode) {
-                    opt.classList.add('active');
-                } else {
-                    opt.classList.remove('active');
-                }
-            });
-
-            policyOptions.forEach((opt) => {
-                if (opt.getAttribute('data-policy') === statelessPolicy) {
-                    opt.classList.add('active');
-                } else {
-                    opt.classList.remove('active');
-                }
-            });
-
-            const statelessActive = currentMode === MODES.STATELESS;
-            policyToggle.style.opacity = statelessActive ? '1' : '0.45';
-            policyToggle.style.pointerEvents = statelessActive ? 'auto' : 'none';
-        }
-
-        function updateLayoutGeometry() {
-            const rect = canvas.getBoundingClientRect();
-            const cw = rect.width;
-            const ch = rect.height;
-            const statefulView = isStatefulMode(currentMode);
-            const ringScale = cw > 1000 ? 0.24 : cw > 800 ? 0.21 : 0.18;
-
-            ringCenter = statefulView
-                ? { x: cw * 0.50, y: ch * 0.24 }
-                : { x: cw * 0.53, y: ch * 0.52 };
-            ringRadius = statefulView
-                ? Math.max(84, Math.min(cw, ch) * ringScale)
-                : Math.max(85, Math.min(cw, ch) * 0.28);
-
-            lbNode = {
-                x: cw * 0.24,
-                y: statefulView ? ch * 0.56 : ch * 0.48,
-                w: 132,
-                h: 62,
-                label: currentMode === MODES.MOD_N
-                    ? 'Mod-N Router'
-                    : currentMode === MODES.CONSISTENT
-                        ? 'Hash Ingress'
-                        : `LB ${statelessPolicy}`
-            };
-
-            serverNodes = [];
-            const startX = cw * 0.83;
-            const sW = 118;
-            const sH = 56;
-            const spacing = Math.min((ch * 0.75) / Math.max(servers.length, 1), 74);
-            const serverCenterY = statefulView ? ch * 0.48 : ch * 0.46;
-            const startY = serverCenterY - ((servers.length - 1) * spacing) / 2;
-
-            servers.forEach((srv, i) => {
-                serverNodes.push({
-                    id: srv.id,
-                    name: srv.name,
-                    path: srv.path,
-                    x: startX,
-                    y: startY + (i * spacing),
-                    w: sW,
-                    h: sH,
-                    count: srv.count || 0
-                });
-            });
-
-            ringNodes = (hashMapState.ring && hashMapState.ring.length)
-                ? hashMapState.ring
-                : servers.flatMap((srv, idx) => Array.from({ length: normalizeVirtualNodeCount(hashMapState.virtualNodesPerServer || 10) }, (_, vnodeIndex) => ({
-                    serverId: srv.id,
-                    name: srv.name,
-                    hash: hashToRing(`${srv.id}::${vnodeIndex}`),
-                    color: FALLBACK_RING_COLORS[idx % FALLBACK_RING_COLORS.length],
-                    vnodeIndex,
-                    vnodeKey: `${srv.id}::${vnodeIndex}`
-                })));
-
-            if (currentMode === MODES.MOD_N) {
-                ringNodes = [];
-            }
-
-            ringVirtualPositions = [];
-            ringServerAnchors = new Map();
-            ringNodes.forEach((node, idx) => {
-                const angle = ((node.hash / 360) * Math.PI * 2) - (Math.PI / 2);
-                const pos = {
-                    x: ringCenter.x + Math.cos(angle) * ringRadius,
-                    y: ringCenter.y + Math.sin(angle) * ringRadius,
-                    color: node.color || FALLBACK_RING_COLORS[idx % FALLBACK_RING_COLORS.length],
-                    hash: node.hash,
-                    name: node.name,
-                    serverId: node.serverId,
-                    vnodeIndex: Number(node.vnodeIndex) || 0,
-                    vnodeKey: node.vnodeKey || `${node.serverId}::${Number(node.vnodeIndex) || 0}`
-                };
-                ringVirtualPositions.push(pos);
-                if (!ringServerAnchors.has(node.serverId)) {
-                    ringServerAnchors.set(node.serverId, pos);
-                }
-            });
-        }
-        
-        // Helper: Rounded Rect
-        function drawRoundedRect(x, y, w, h, r, fill, stroke, glow) {
-            ctx.save();
-            if (glow) {
-                ctx.shadowBlur = 15;
-                ctx.shadowColor = glow;
-            }
-            ctx.beginPath();
-            ctx.moveTo(x + r, y);
-            ctx.arcTo(x + w, y, x + w, y + h, r);
-            ctx.arcTo(x + w, y + h, x, y + h, r);
-            ctx.arcTo(x, y + h, x, y, r);
-            ctx.arcTo(x, y, x + w, y, r);
-            ctx.closePath();
-            if (fill) {
-                ctx.fillStyle = fill;
-                ctx.fill();
-            }
-            if (stroke) {
-                ctx.strokeStyle = stroke;
-                ctx.lineWidth = 2;
-                ctx.stroke();
-            }
-            ctx.restore();
-        }
-
-        function ringPointForHash(hashValue, radius = ringRadius) {
-            const hash = ((Number(hashValue) || 0) % 360 + 360) % 360;
-            const angle = ((hash / 360) * Math.PI * 2) - (Math.PI / 2);
-            return {
-                x: ringCenter.x + Math.cos(angle) * radius,
-                y: ringCenter.y + Math.sin(angle) * radius
-            };
-        }
-
-        function drawRingSegment(start, end, color, width) {
-            const startNorm = ((start % 360) + 360) % 360;
-            const endNorm = ((end % 360) + 360) % 360;
-
-            const drawArc = (fromDeg, toDeg) => {
-                ctx.beginPath();
-                ctx.arc(
-                    ringCenter.x,
-                    ringCenter.y,
-                    ringRadius,
-                    (fromDeg / 180) * Math.PI - (Math.PI / 2),
-                    (toDeg / 180) * Math.PI - (Math.PI / 2)
-                );
-                ctx.strokeStyle = color;
-                ctx.lineWidth = width;
-                ctx.stroke();
-            };
-
-            if (startNorm <= endNorm) {
-                drawArc(startNorm, endNorm);
-            } else {
-                drawArc(startNorm, 360);
-                drawArc(0, endNorm);
-            }
-        }
-
-        function toLinearRanges(ranges) {
-            const linear = [];
-            ranges.forEach((range) => {
-                const start = ((Number(range.start) || 0) % 360 + 360) % 360;
-                const end = ((Number(range.end) || 0) % 360 + 360) % 360;
-                if (start <= end) {
-                    linear.push({ start, end });
-                } else {
-                    linear.push({ start: 0, end });
-                    linear.push({ start, end: 360 });
-                }
-            });
-            return linear;
-        }
-
-        function mergeLinearRanges(ranges) {
-            if (!ranges.length) return [];
-            const sorted = [...ranges].sort((a, b) => a.start - b.start);
-            const merged = [sorted[0]];
-            for (let i = 1; i < sorted.length; i++) {
-                const current = sorted[i];
-                const previous = merged[merged.length - 1];
-                if (current.start <= previous.end + 0.05) {
-                    previous.end = Math.max(previous.end, current.end);
-                } else {
-                    merged.push({ ...current });
-                }
-            }
-            return merged;
-        }
-
-        function buildSpotRangesFromHashes(hashValues, halfWidth = 1.1) {
-            const validHashes = hashValues.filter((value) => Number.isFinite(value));
-            if (!validHashes.length) return [];
-            const spotRanges = validHashes.map((hash) => ({
-                start: hash - halfWidth,
-                end: hash + halfWidth
-            }));
-            return mergeLinearRanges(toLinearRanges(spotRanges));
-        }
-
-        function drawHashRing() {
-            if (!isStatefulMode(currentMode)) {
-                return;
-            }
-
-            ctx.save();
-
-            ctx.beginPath();
-            ctx.arc(ringCenter.x, ringCenter.y, ringRadius, 0, Math.PI * 2);
-            ctx.strokeStyle = 'rgba(96, 165, 250, 0.35)';
-            ctx.lineWidth = 3;
-            ctx.stroke();
-
-            if (currentMode === MODES.MOD_N) {
-                const sectorCount = Math.max(servers.length, 1);
-                for (let i = 0; i < sectorCount; i++) {
-                    const start = (i * 360) / sectorCount;
-                    const end = ((i + 1) * 360) / sectorCount;
-                    const color = FALLBACK_RING_COLORS[i % FALLBACK_RING_COLORS.length];
-                    drawRingSegment(start, end, color, 9);
-                }
-            }
-
-            const shouldFlash = Date.now() < ringFlashUntil;
-            const affectedRanges = shouldFlash ? ringFlashRanges : [];
-
-            affectedRanges.forEach((range) => {
-                drawRingSegment(range.start, range.end, '#ef4444', 4.5);
-            });
-
-            const keyMappings = hashMapState.keyMappings || [];
-            keyMappings.slice(-60).forEach((mapping) => {
-                const point = ringPointForHash(mapping.hash, ringRadius - 4);
-                ctx.beginPath();
-                ctx.arc(point.x, point.y, 2.2, 0, Math.PI * 2);
-                ctx.fillStyle = 'rgba(59, 130, 246, 0.9)';
-                ctx.fill();
-            });
-
-            ringVirtualPositions.forEach((nodePos) => {
-                ctx.beginPath();
-                ctx.arc(nodePos.x, nodePos.y, 4, 0, Math.PI * 2);
-                ctx.fillStyle = nodePos.color;
-                ctx.fill();
-
-                ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
-                ctx.lineWidth = 1;
-                ctx.stroke();
-            });
-
-            let legendIndex = 0;
-            const vnodesPerServer = Number(hashMapState.virtualNodesPerServer) || 10;
-            ringServerAnchors.forEach((nodePos, serverId) => {
-                if (legendIndex >= 4) return;
-                const ly = ringCenter.y - ringRadius - 14 + (legendIndex * 14);
-                const lx = ringCenter.x - ringRadius;
-                ctx.fillStyle = nodePos.color;
-                ctx.fillRect(lx, ly - 7, 8, 8);
-                ctx.fillStyle = '#cbd5e1';
-                ctx.font = '600 10px Outfit';
-                ctx.textAlign = 'left';
-                ctx.fillText(`${serverId} (${vnodesPerServer} vNodes)`, lx + 12, ly);
-                legendIndex += 1;
-            });
-
-            const rehashImpact = Number(
-                hashMapState.rehashImpact ||
-                (lastRehashEvent.mode === currentMode ? lastRehashEvent.affectedPercent : 0) ||
-                0
-            );
-            ctx.fillStyle = shouldFlash ? 'rgba(239, 68, 68, 0.95)' : 'rgba(96, 165, 250, 0.92)';
-            ctx.font = '700 13px Outfit';
-            ctx.textAlign = 'center';
-            ctx.fillText(`${rehashImpact.toFixed(1)}% keys moved`, ringCenter.x, ringCenter.y + ringRadius + 24);
-
-            ctx.fillStyle = '#cbd5e1';
-            ctx.font = '600 12px Outfit';
-            ctx.fillText(modeLabel(), ringCenter.x, ringCenter.y);
-
-            ctx.restore();
-        }
-
-        function findServerPoint(serverId, hashHint) {
-            const rectNode = serverNodes.find((node) => node.id === serverId);
-            if (rectNode) {
-                return { x: rectNode.x - rectNode.w / 2, y: rectNode.y };
-            }
-            if (currentMode === MODES.CONSISTENT) {
-                const ringPos = ringServerAnchors.get(serverId);
-                if (ringPos) return ringPos;
-                return ringPointForHash(hashHint || 0);
-            }
-            return ringPointForHash(hashHint || 0);
-        }
-
-        function drawTopologyNodes() {
-            if (currentMode === MODES.CONSISTENT) {
-                const ingressGlow = 'rgba(59, 130, 246, 0.35)';
-                drawRoundedRect(lbNode.x - lbNode.w / 2, lbNode.y - lbNode.h / 2, lbNode.w, lbNode.h, 10, 'rgba(30, 41, 59, 0.9)', '#3b82f6', ingressGlow);
-                ctx.fillStyle = '#e2e8f0';
-                ctx.font = '600 13px Outfit';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText('Client Ingress', lbNode.x, lbNode.y);
-
-                ctx.strokeStyle = 'rgba(96, 165, 250, 0.2)';
-                ctx.lineWidth = 1;
-                serverNodes.forEach((srv) => {
-                    ctx.beginPath();
-                    ctx.moveTo(lbNode.x + lbNode.w / 2, lbNode.y);
-                    ctx.lineTo(srv.x - srv.w / 2, srv.y);
-                    ctx.stroke();
-                });
-
-                serverNodes.forEach((srv) => drawNode(srv, false));
-                return;
-            }
-
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
-            ctx.lineWidth = 1;
-            serverNodes.forEach((srv) => {
-                ctx.beginPath();
-                ctx.moveTo(lbNode.x + lbNode.w / 2, lbNode.y);
-                ctx.lineTo(srv.x - srv.w / 2, srv.y);
-                ctx.stroke();
-            });
-
-            drawNode(lbNode, true);
-            serverNodes.forEach((srv) => drawNode(srv, false));
-        }
-
-        function drawNode(node, isLB) {
-            const x = node.x - node.w / 2;
-            const y = node.y - node.h / 2;
-            const fill = isLB ? 'rgba(16, 185, 129, 0.14)' : 'rgba(30, 41, 59, 0.92)';
-            const stroke = isLB ? '#10b981' : '#3b82f6';
-            const glow = isLB ? 'rgba(16, 185, 129, 0.42)' : 'rgba(59, 130, 246, 0.28)';
-
-            drawRoundedRect(x, y, node.w, node.h, 8, fill, stroke, glow);
-
-            ctx.fillStyle = '#fff';
-            ctx.font = isLB ? '600 14px Outfit' : '600 12px Outfit';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-
-            if (isLB) {
-                ctx.fillText(node.label, node.x, node.y);
-            } else {
-                ctx.fillText(node.name, node.x, node.y - 8);
-                ctx.fillStyle = '#94a3b8';
-                ctx.font = '400 10px Outfit';
-                ctx.fillText(node.path, node.x, node.y + 10);
-
-                const srvState = servers.find((s) => s.id === node.id);
-                if (srvState && srvState.count !== undefined) {
-                    ctx.fillStyle = 'rgba(59, 130, 246, 0.2)';
-                    ctx.beginPath();
-                    ctx.roundRect(node.x - 16, node.y - node.h / 2 - 16, 32, 14, 4);
-                    ctx.fill();
-                    ctx.fillStyle = '#60a5fa';
-                    ctx.font = '700 9px Outfit';
-                    ctx.fillText(srvState.count, node.x, node.y - node.h / 2 - 9);
-                }
-            }
-        }
-
-        function getPacketColor(routeData) {
-            if (routeData.migrated) return '#ef4444';
-            return '#60a5fa';
-        }
-
-        function spawnPacket(routeData) {
-            const rect = canvas.getBoundingClientRect();
-            packets.push({
-                x: 16,
-                y: Math.random() * rect.height,
-                phase: 'to_lb',
-                route: routeData,
-                speed: 3 + Math.random() * 1.8,
-                color: getPacketColor(routeData)
-            });
-
-            if (packets.length > 240) {
-                packets.shift();
-            }
-        }
-
-        function spawnMigrationBursts(changedSamples) {
-            changedSamples.slice(0, 40).forEach((sample) => {
-                migrations.push({
-                    from: sample.from,
-                    to: sample.to,
-                    hash: sample.hash,
-                    progress: 0,
-                    speed: 0.01 + Math.random() * 0.02
-                });
-            });
-        }
-
-        function movePointTowards(point, targetX, targetY, speed) {
-            const dx = targetX - point.x;
-            const dy = targetY - point.y;
-            const dist = Math.hypot(dx, dy);
-            if (dist <= speed || dist === 0) {
-                point.x = targetX;
-                point.y = targetY;
-                return true;
-            }
-            point.x += (dx / dist) * speed;
-            point.y += (dy / dist) * speed;
-            return false;
-        }
-
-        function drawPackets() {
-            for (let i = packets.length - 1; i >= 0; i--) {
-                const packet = packets[i];
-                const routeMode = packet.route.mode || currentMode;
-
-                if (packet.phase === 'to_lb') {
-                    const reached = movePointTowards(packet, lbNode.x - lbNode.w / 2, lbNode.y, packet.speed);
-                    if (reached) {
-                        packet.phase = packet.route.target ? 'to_server' : 'drop';
-                    }
-                } else if (packet.phase === 'to_server') {
-                    const targetPoint = routeMode === MODES.CONSISTENT
-                        ? findServerPoint(packet.route.target, packet.route.requestHash)
-                        : (() => {
-                            const targetNode = serverNodes.find((node) => node.id === packet.route.target);
-                            return targetNode
-                                ? { x: targetNode.x - targetNode.w / 2, y: targetNode.y }
-                                : null;
-                        })();
-
-                    if (!targetPoint) {
-                        packet.phase = 'drop';
-                    } else {
-                        const reachedServer = movePointTowards(packet, targetPoint.x, targetPoint.y, packet.speed);
-                        if (reachedServer) {
-                            packets.splice(i, 1);
-                            continue;
-                        }
-                    }
-                }
-
-                if (packet.phase === 'drop') {
-                    packets.splice(i, 1);
-                    continue;
-                }
-
-                ctx.beginPath();
-                ctx.arc(packet.x, packet.y, 3.2, 0, Math.PI * 2);
-                ctx.fillStyle = packet.color;
-                ctx.fill();
-
-                ctx.shadowBlur = 10;
-                ctx.shadowColor = packet.color;
-
-                if (packet.route.message) {
-                    ctx.font = '800 18px Outfit';
-                    ctx.textAlign = 'center';
-                    ctx.fillStyle = 'white';
-                    ctx.fillText(packet.route.message, packet.x, packet.y - 14);
-                }
-            }
-            ctx.shadowBlur = 0;
-        }
-
-        function drawMigrations() {
-            for (let i = migrations.length - 1; i >= 0; i--) {
-                const migration = migrations[i];
-                const source = findServerPoint(migration.from, migration.hash);
-                const destination = findServerPoint(migration.to, migration.hash);
-
-                if (!source || !destination) {
-                    migrations.splice(i, 1);
-                    continue;
-                }
-
-                migration.progress += migration.speed;
-                if (migration.progress >= 1) {
-                    migrations.splice(i, 1);
-                    continue;
-                }
-
-                const x = source.x + (destination.x - source.x) * migration.progress;
-                const y = source.y + (destination.y - source.y) * migration.progress;
-
-                ctx.strokeStyle = 'rgba(239, 68, 68, 0.58)';
-                ctx.lineWidth = 1.4;
-                ctx.beginPath();
-                ctx.moveTo(source.x, source.y);
-                ctx.lineTo(x, y);
-                ctx.stroke();
-
-                ctx.beginPath();
-                ctx.arc(x, y, 3.4, 0, Math.PI * 2);
-                ctx.fillStyle = '#ef4444';
-                ctx.fill();
-            }
-        }
-
-        function drawCanvasHUD() {
-            ctx.fillStyle = 'rgba(226, 232, 240, 0.9)';
-            ctx.font = '700 13px Outfit';
-            ctx.textAlign = 'left';
-            ctx.fillText(`Mode: ${modeLabel()}`, 16, 24);
-
-            const rehash = Number(hashMapState.rehashImpact || 0);
-            if (rehash > 0) {
-                ctx.fillStyle = 'rgba(239, 68, 68, 0.95)';
-                ctx.fillText(`Rehash Impact: ${rehash.toFixed(1)}% affected`, 16, 44);
-            }
-
-            ctx.fillStyle = '#60a5fa';
-            ctx.fillRect(16, 58, 10, 10);
-            ctx.fillStyle = '#cbd5e1';
-            ctx.font = '600 11px Outfit';
-            ctx.fillText('Normal routing', 30, 67);
-
-            ctx.fillStyle = '#ef4444';
-            ctx.fillRect(120, 58, 10, 10);
-            ctx.fillStyle = '#cbd5e1';
-            ctx.fillText('Rehash migration', 136, 67);
-        }
-
-        // Socket Events
-        socket.on('initial_state', (data) => {
-            currentMode = data.mode || MODES.STATELESS;
-            statelessPolicy = data.statelessPolicy || 'L4';
-            servers = data.servers || [];
-            if (data.hashMap) {
-                hashMapState = data.hashMap;
-            }
-            if (data.virtualNodesPerServer) {
-                hashMapState.virtualNodesPerServer = normalizeVirtualNodeCount(data.virtualNodesPerServer);
-            }
-            if (data.metrics) {
-                metricsState = data.metrics;
-            }
-            if (data.lastRehash) {
-                lastRehashEvent = data.lastRehash;
-            }
-            ringFlashUntil = 0;
-            ringFlashRanges = [];
-            syncVirtualNodeInput(true);
-            updateModeUI();
-            updateMetricsUI();
-            
-            if(data.qrCode) qrCodeImg.src = data.qrCode;
-            if(data.mobileUrl) {
-                mobileLinkA.href = data.mobileUrl;
-                mobileLinkA.textContent = data.mobileUrl;
-            }
-            
-            resizeCanvas(); // Trigger positions
-            renderServerList();
-        });
-
-        socket.on('url_updated', (data) => {
-            qrCodeImg.src = data.qrCode;
-            mobileLinkA.href = data.url;
-            mobileLinkA.textContent = data.url;
-        });
-
-        socket.on('mode_changed', (payload) => {
-            if (typeof payload === 'string') {
-                if (payload === 'L4' || payload === 'L7') {
-                    currentMode = MODES.STATELESS;
-                    statelessPolicy = payload;
-                }
-            } else if (payload) {
-                currentMode = payload.mode || currentMode;
-                statelessPolicy = payload.statelessPolicy || statelessPolicy;
-            }
-            updateModeUI();
-            updateLayoutGeometry();
-        });
-
-        socket.on('servers_updated', (newServers) => {
-            servers = newServers;
-            updateLayoutGeometry();
-            renderServerList();
-        });
-
-        socket.on('hash_map_update', (hashMap) => {
-            hashMapState = {
-                ...hashMap,
-                affectedRanges: []
-            };
-            syncVirtualNodeInput();
-            updateLayoutGeometry();
-        });
-
-        socket.on('virtual_nodes_changed', (payload) => {
-            if (!payload) return;
-            if (Object.prototype.hasOwnProperty.call(payload, 'k')) {
-                hashMapState.virtualNodesPerServer = normalizeVirtualNodeCount(payload.k);
-                syncVirtualNodeInput(true);
-                updateLayoutGeometry();
-            }
-        });
-
-        socket.on('rehash_event', (rehashData) => {
-            lastRehashEvent = rehashData;
-            hashMapState.rehashImpact = Number(rehashData.affectedPercent) || 0;
-            spawnMigrationBursts(rehashData.changedSamples || []);
-
-            if (rehashData && (rehashData.reason === 'server_added' || rehashData.reason === 'server_removed')) {
-                const movedHashes = (rehashData.changedSamples || []).map((item) => Number(item.hash));
-                ringFlashRanges = movedHashes.length
-                    ? buildSpotRangesFromHashes(movedHashes, 1.1)
-                    : (rehashData.affectedRanges || []);
-                ringFlashUntil = Date.now() + RING_FLASH_MS;
-            }
-
-            rehashImpactLabelEl.textContent = `Rehash Impact: ${(Number(rehashData.affectedPercent) || 0).toFixed(1)}% affected`;
-        });
-
-        socket.on('metrics_update', (newMetrics) => {
-            metricsState = newMetrics;
-            updateMetricsUI();
-        });
-
-        socket.on('route_update', (data) => {
-            if (data.servers) {
-                servers = data.servers;
-                updateLayoutGeometry();
-                renderServerList();
-            }
-            spawnPacket(data);
-        });
-
-        socket.on('latency_update', (data) => {
-            if (data && data.migrated && data.mode === currentMode) {
-                hashMapState.rehashImpact = Math.max(
-                    Number(hashMapState.rehashImpact) || 0,
-                    0
-                );
-            }
-        });
-
-        // UI Interactions
-        modeOptions.forEach(opt => {
-            opt.addEventListener('click', () => {
-                const mode = opt.getAttribute('data-mode');
-                socket.emit('switch_mode', { mode });
-            });
+      }
+
+      function submitVirtualNodeCount() {
+        if (!vnodeCountInputEl) return;
+        const nextValue = normalizeVirtualNodeCount(vnodeCountInputEl.value);
+        vnodeCountInputEl.value = String(nextValue);
+        socket.emit("set_virtual_nodes", { k: nextValue });
+      }
+
+      function setBarValue(barEl, valueEl, numericValue) {
+        const safeValue = Math.max(0, Math.min(100, Number(numericValue) || 0));
+        barEl.style.width = `${safeValue}%`;
+        valueEl.textContent = `${safeValue.toFixed(1)}%`;
+      }
+
+      function updateMetricsUI() {
+        if (!metricsState) return;
+
+        totalRequestsEl.textContent = metricsState.totalRequests || 0;
+        serverCountEl.textContent = Array.isArray(servers) ? servers.length : 0;
+
+        const comparison = metricsState.migrationCostComparison || {};
+        setBarValue(chartModNEl, chartModNValEl, comparison.modN);
+        setBarValue(
+          chartConsistentEl,
+          chartConsistentValEl,
+          comparison.consistent,
+        );
+
+        const rehashPercent = Number(
+          (metricsState.lastRehash &&
+            metricsState.lastRehash.affectedPercent) ||
+            lastRehashEvent.affectedPercent ||
+            0,
+        );
+        rehashImpactLabelEl.textContent = `Rehash Impact: ${rehashPercent.toFixed(1)}% affected`;
+      }
+
+      function updateModeUI() {
+        modeOptions.forEach((opt) => {
+          if (opt.getAttribute("data-mode") === currentMode) {
+            opt.classList.add("active");
+          } else {
+            opt.classList.remove("active");
+          }
         });
 
         policyOptions.forEach((opt) => {
-            opt.addEventListener('click', () => {
-                const policy = opt.getAttribute('data-policy');
-                socket.emit('switch_mode', {
-                    mode: MODES.STATELESS,
-                    statelessPolicy: policy
-                });
-            });
+          if (opt.getAttribute("data-policy") === statelessPolicy) {
+            opt.classList.add("active");
+          } else {
+            opt.classList.remove("active");
+          }
         });
 
-        if (applyVnodeBtn) {
-            applyVnodeBtn.addEventListener('click', submitVirtualNodeCount);
+        const statelessActive = currentMode === MODES.STATELESS;
+        policyToggle.style.opacity = statelessActive ? "1" : "0.45";
+        policyToggle.style.pointerEvents = statelessActive ? "auto" : "none";
+      }
+
+      function updateLayoutGeometry() {
+        const rect = canvas.getBoundingClientRect();
+        const cw = rect.width;
+        const ch = rect.height;
+        const statefulView = isStatefulMode(currentMode);
+        const ringScale = cw > 1000 ? 0.24 : cw > 800 ? 0.21 : 0.18;
+
+        ringCenter = statefulView
+          ? { x: cw * 0.5, y: ch * 0.24 }
+          : { x: cw * 0.53, y: ch * 0.52 };
+        ringRadius = statefulView
+          ? Math.max(84, Math.min(cw, ch) * ringScale)
+          : Math.max(85, Math.min(cw, ch) * 0.28);
+
+        lbNode = {
+          x: cw * 0.24,
+          y: statefulView ? ch * 0.56 : ch * 0.48,
+          w: 132,
+          h: 62,
+          label:
+            currentMode === MODES.MOD_N
+              ? "Mod-N Router"
+              : currentMode === MODES.CONSISTENT
+                ? "Hash Ingress"
+                : `LB ${getStatelessPolicyLabel(statelessPolicy)}`,
+        };
+
+        serverNodes = [];
+        const startX = cw * 0.83;
+        const sW = 118;
+        const sH = 56;
+        const spacing = Math.min((ch * 0.75) / Math.max(servers.length, 1), 74);
+        const serverCenterY = statefulView ? ch * 0.48 : ch * 0.46;
+        const startY = serverCenterY - ((servers.length - 1) * spacing) / 2;
+
+        servers.forEach((srv, i) => {
+          serverNodes.push({
+            id: srv.id,
+            name: srv.name,
+            path: srv.path,
+            x: startX,
+            y: startY + i * spacing,
+            w: sW,
+            h: sH,
+            count: srv.count || 0,
+          });
+        });
+
+        ringNodes =
+          hashMapState.ring && hashMapState.ring.length
+            ? hashMapState.ring
+            : servers.flatMap((srv, idx) =>
+                Array.from(
+                  {
+                    length: normalizeVirtualNodeCount(
+                      hashMapState.virtualNodesPerServer || 10,
+                    ),
+                  },
+                  (_, vnodeIndex) => ({
+                    serverId: srv.id,
+                    name: srv.name,
+                    hash: hashToRing(`${srv.id}::${vnodeIndex}`),
+                    color:
+                      FALLBACK_RING_COLORS[idx % FALLBACK_RING_COLORS.length],
+                    vnodeIndex,
+                    vnodeKey: `${srv.id}::${vnodeIndex}`,
+                  }),
+                ),
+              );
+
+        if (currentMode === MODES.MOD_N) {
+          ringNodes = [];
         }
 
-        if (vnodeCountInputEl) {
-            vnodeCountInputEl.addEventListener('keydown', (event) => {
-                if (event.key === 'Enter') {
-                    event.preventDefault();
-                    submitVirtualNodeCount();
+        ringVirtualPositions = [];
+        ringServerAnchors = new Map();
+        ringNodes.forEach((node, idx) => {
+          const angle = (node.hash / 360) * Math.PI * 2 - Math.PI / 2;
+          const pos = {
+            x: ringCenter.x + Math.cos(angle) * ringRadius,
+            y: ringCenter.y + Math.sin(angle) * ringRadius,
+            color:
+              node.color ||
+              FALLBACK_RING_COLORS[idx % FALLBACK_RING_COLORS.length],
+            hash: node.hash,
+            name: node.name,
+            serverId: node.serverId,
+            vnodeIndex: Number(node.vnodeIndex) || 0,
+            vnodeKey:
+              node.vnodeKey ||
+              `${node.serverId}::${Number(node.vnodeIndex) || 0}`,
+          };
+          ringVirtualPositions.push(pos);
+          if (!ringServerAnchors.has(node.serverId)) {
+            ringServerAnchors.set(node.serverId, pos);
+          }
+        });
+      }
+
+      // Helper: Rounded Rect
+      function drawRoundedRect(x, y, w, h, r, fill, stroke, glow) {
+        ctx.save();
+        if (glow) {
+          ctx.shadowBlur = 15;
+          ctx.shadowColor = glow;
+        }
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.arcTo(x + w, y, x + w, y + h, r);
+        ctx.arcTo(x + w, y + h, x, y + h, r);
+        ctx.arcTo(x, y + h, x, y, r);
+        ctx.arcTo(x, y, x + w, y, r);
+        ctx.closePath();
+        if (fill) {
+          ctx.fillStyle = fill;
+          ctx.fill();
+        }
+        if (stroke) {
+          ctx.strokeStyle = stroke;
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+
+      function ringPointForHash(hashValue, radius = ringRadius) {
+        const hash = (((Number(hashValue) || 0) % 360) + 360) % 360;
+        const angle = (hash / 360) * Math.PI * 2 - Math.PI / 2;
+        return {
+          x: ringCenter.x + Math.cos(angle) * radius,
+          y: ringCenter.y + Math.sin(angle) * radius,
+        };
+      }
+
+      function drawRingSegment(start, end, color, width) {
+        const startNorm = ((start % 360) + 360) % 360;
+        const endNorm = ((end % 360) + 360) % 360;
+
+        const drawArc = (fromDeg, toDeg) => {
+          ctx.beginPath();
+          ctx.arc(
+            ringCenter.x,
+            ringCenter.y,
+            ringRadius,
+            (fromDeg / 180) * Math.PI - Math.PI / 2,
+            (toDeg / 180) * Math.PI - Math.PI / 2,
+          );
+          ctx.strokeStyle = color;
+          ctx.lineWidth = width;
+          ctx.stroke();
+        };
+
+        if (startNorm <= endNorm) {
+          drawArc(startNorm, endNorm);
+        } else {
+          drawArc(startNorm, 360);
+          drawArc(0, endNorm);
+        }
+      }
+
+      function toLinearRanges(ranges) {
+        const linear = [];
+        ranges.forEach((range) => {
+          const start = (((Number(range.start) || 0) % 360) + 360) % 360;
+          const end = (((Number(range.end) || 0) % 360) + 360) % 360;
+          if (start <= end) {
+            linear.push({ start, end });
+          } else {
+            linear.push({ start: 0, end });
+            linear.push({ start, end: 360 });
+          }
+        });
+        return linear;
+      }
+
+      function mergeLinearRanges(ranges) {
+        if (!ranges.length) return [];
+        const sorted = [...ranges].sort((a, b) => a.start - b.start);
+        const merged = [sorted[0]];
+        for (let i = 1; i < sorted.length; i++) {
+          const current = sorted[i];
+          const previous = merged[merged.length - 1];
+          if (current.start <= previous.end + 0.05) {
+            previous.end = Math.max(previous.end, current.end);
+          } else {
+            merged.push({ ...current });
+          }
+        }
+        return merged;
+      }
+
+      function buildSpotRangesFromHashes(hashValues, halfWidth = 1.1) {
+        const validHashes = hashValues.filter((value) =>
+          Number.isFinite(value),
+        );
+        if (!validHashes.length) return [];
+        const spotRanges = validHashes.map((hash) => ({
+          start: hash - halfWidth,
+          end: hash + halfWidth,
+        }));
+        return mergeLinearRanges(toLinearRanges(spotRanges));
+      }
+
+      function drawHashRing() {
+        if (!isStatefulMode(currentMode)) {
+          return;
+        }
+
+        ctx.save();
+
+        ctx.beginPath();
+        ctx.arc(ringCenter.x, ringCenter.y, ringRadius, 0, Math.PI * 2);
+        ctx.strokeStyle = "rgba(96, 165, 250, 0.35)";
+        ctx.lineWidth = 3;
+        ctx.stroke();
+
+        if (currentMode === MODES.MOD_N) {
+          const sectorCount = Math.max(servers.length, 1);
+          for (let i = 0; i < sectorCount; i++) {
+            const start = (i * 360) / sectorCount;
+            const end = ((i + 1) * 360) / sectorCount;
+            const color = FALLBACK_RING_COLORS[i % FALLBACK_RING_COLORS.length];
+            drawRingSegment(start, end, color, 9);
+          }
+        }
+
+        const shouldFlash = Date.now() < ringFlashUntil;
+        const affectedRanges = shouldFlash ? ringFlashRanges : [];
+
+        affectedRanges.forEach((range) => {
+          drawRingSegment(range.start, range.end, "#ef4444", 4.5);
+        });
+
+        const keyMappings = hashMapState.keyMappings || [];
+        keyMappings.slice(-60).forEach((mapping) => {
+          const point = ringPointForHash(mapping.hash, ringRadius - 4);
+          ctx.beginPath();
+          ctx.arc(point.x, point.y, 2.2, 0, Math.PI * 2);
+          ctx.fillStyle = "rgba(59, 130, 246, 0.9)";
+          ctx.fill();
+        });
+
+        ringVirtualPositions.forEach((nodePos) => {
+          ctx.beginPath();
+          ctx.arc(nodePos.x, nodePos.y, 4, 0, Math.PI * 2);
+          ctx.fillStyle = nodePos.color;
+          ctx.fill();
+
+          ctx.strokeStyle = "rgba(255, 255, 255, 0.35)";
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        });
+
+        let legendIndex = 0;
+        const vnodesPerServer =
+          Number(hashMapState.virtualNodesPerServer) || 10;
+        ringServerAnchors.forEach((nodePos, serverId) => {
+          if (legendIndex >= 4) return;
+          const ly = ringCenter.y - ringRadius - 14 + legendIndex * 14;
+          const lx = ringCenter.x - ringRadius;
+          ctx.fillStyle = nodePos.color;
+          ctx.fillRect(lx, ly - 7, 8, 8);
+          ctx.fillStyle = "#cbd5e1";
+          ctx.font = "600 10px Outfit";
+          ctx.textAlign = "left";
+          ctx.fillText(`${serverId} (${vnodesPerServer} vNodes)`, lx + 12, ly);
+          legendIndex += 1;
+        });
+
+        const rehashImpact = Number(
+          hashMapState.rehashImpact ||
+            (lastRehashEvent.mode === currentMode
+              ? lastRehashEvent.affectedPercent
+              : 0) ||
+            0,
+        );
+        ctx.fillStyle = shouldFlash
+          ? "rgba(239, 68, 68, 0.95)"
+          : "rgba(96, 165, 250, 0.92)";
+        ctx.font = "700 13px Outfit";
+        ctx.textAlign = "center";
+        ctx.fillText(
+          `${rehashImpact.toFixed(1)}% keys moved`,
+          ringCenter.x,
+          ringCenter.y + ringRadius + 24,
+        );
+
+        ctx.fillStyle = "#cbd5e1";
+        ctx.font = "600 12px Outfit";
+        ctx.fillText(modeLabel(), ringCenter.x, ringCenter.y);
+
+        ctx.restore();
+      }
+
+      function findServerPoint(serverId, hashHint) {
+        const rectNode = serverNodes.find((node) => node.id === serverId);
+        if (rectNode) {
+          return { x: rectNode.x - rectNode.w / 2, y: rectNode.y };
+        }
+        if (currentMode === MODES.CONSISTENT) {
+          const ringPos = ringServerAnchors.get(serverId);
+          if (ringPos) return ringPos;
+          return ringPointForHash(hashHint || 0);
+        }
+        return ringPointForHash(hashHint || 0);
+      }
+
+      function drawTopologyNodes() {
+        if (currentMode === MODES.CONSISTENT) {
+          const ingressGlow = "rgba(59, 130, 246, 0.35)";
+          drawRoundedRect(
+            lbNode.x - lbNode.w / 2,
+            lbNode.y - lbNode.h / 2,
+            lbNode.w,
+            lbNode.h,
+            10,
+            "rgba(30, 41, 59, 0.9)",
+            "#3b82f6",
+            ingressGlow,
+          );
+          ctx.fillStyle = "#e2e8f0";
+          ctx.font = "600 13px Outfit";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText("Client Ingress", lbNode.x, lbNode.y);
+
+          ctx.strokeStyle = "rgba(96, 165, 250, 0.2)";
+          ctx.lineWidth = 1;
+          serverNodes.forEach((srv) => {
+            ctx.beginPath();
+            ctx.moveTo(lbNode.x + lbNode.w / 2, lbNode.y);
+            ctx.lineTo(srv.x - srv.w / 2, srv.y);
+            ctx.stroke();
+          });
+
+          serverNodes.forEach((srv) => drawNode(srv, false));
+          return;
+        }
+
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
+        ctx.lineWidth = 1;
+        serverNodes.forEach((srv) => {
+          ctx.beginPath();
+          ctx.moveTo(lbNode.x + lbNode.w / 2, lbNode.y);
+          ctx.lineTo(srv.x - srv.w / 2, srv.y);
+          ctx.stroke();
+        });
+
+        drawNode(lbNode, true);
+        serverNodes.forEach((srv) => drawNode(srv, false));
+      }
+
+      function drawNode(node, isLB) {
+        let drawX = node.x;
+        let drawY = node.y;
+
+        if (!isLB) {
+          const shakeUntil = serverShakeMap.get(node.id) || 0;
+          if (shakeUntil > Date.now()) {
+            drawX += (Math.random() - 0.5) * 6;
+            drawY += (Math.random() - 0.5) * 6;
+          } else if (shakeUntil) {
+            serverShakeMap.delete(node.id);
+          }
+        }
+
+        const x = drawX - node.w / 2;
+        const y = drawY - node.h / 2;
+        const fill = isLB
+          ? "rgba(16, 185, 129, 0.14)"
+          : "rgba(30, 41, 59, 0.92)";
+        const stroke = isLB ? "#10b981" : "#3b82f6";
+        const glow = isLB
+          ? "rgba(16, 185, 129, 0.42)"
+          : "rgba(59, 130, 246, 0.28)";
+
+        drawRoundedRect(x, y, node.w, node.h, 8, fill, stroke, glow);
+
+        ctx.fillStyle = "#fff";
+        ctx.font = isLB ? "600 14px Outfit" : "600 12px Outfit";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+
+        if (isLB) {
+          ctx.fillText(node.label, drawX, drawY);
+        } else {
+          ctx.fillText(node.name, drawX, drawY - 8);
+          ctx.fillStyle = "#94a3b8";
+          ctx.font = "400 10px Outfit";
+          ctx.fillText(`[ ${node.path} ]`, drawX, drawY + 10);
+
+          const srvState = servers.find((s) => s.id === node.id);
+          if (srvState) {
+            const successCount = Number(srvState.count) || 0;
+            const droppedCount = Number(srvState.droppedCount) || 0;
+
+            ctx.fillStyle = "rgba(59, 130, 246, 0.2)";
+            ctx.beginPath();
+            ctx.roundRect(drawX - 34, drawY - node.h / 2 - 16, 28, 14, 4);
+            ctx.fill();
+            ctx.fillStyle = "#60a5fa";
+            ctx.font = "700 9px Outfit";
+            ctx.fillText(successCount, drawX - 20, drawY - node.h / 2 - 9);
+
+            ctx.fillStyle = "rgba(239, 68, 68, 0.2)";
+            ctx.beginPath();
+            ctx.roundRect(drawX + 6, drawY - node.h / 2 - 16, 28, 14, 4);
+            ctx.fill();
+            ctx.fillStyle = "#f87171";
+            ctx.fillText(droppedCount, drawX + 20, drawY - node.h / 2 - 9);
+          }
+        }
+      }
+
+      function getPathColor(path) {
+        switch (path) {
+          case "/api":
+            return "#60a5fa";
+          case "/images":
+            return "#fbbf24";
+          case "/admin":
+            return "#f87171";
+          case "/video":
+            return "#a855f7";
+          default:
+            return "#34d399";
+        }
+      }
+
+      function getPacketColor(routeData) {
+        if (routeData.dropped) return "#9ca3af";
+        if (routeData.migrated) return "#ef4444";
+        return getPathColor(routeData.path);
+      }
+
+      function triggerDropImpact(serverId, x, y) {
+        if (serverId) {
+          serverShakeMap.set(serverId, Date.now() + 420);
+        }
+
+        for (let i = 0; i < 12; i++) {
+          const angle = (Math.PI * 2 * i) / 12;
+          const speed = 1 + Math.random() * 2;
+          dropBursts.push({
+            x,
+            y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            life: 1,
+          });
+        }
+      }
+
+      function drawDropBursts() {
+        for (let i = dropBursts.length - 1; i >= 0; i--) {
+          const part = dropBursts[i];
+          part.x += part.vx;
+          part.y += part.vy;
+          part.vx *= 0.97;
+          part.vy *= 0.97;
+          part.life -= 0.045;
+
+          if (part.life <= 0) {
+            dropBursts.splice(i, 1);
+            continue;
+          }
+
+          ctx.beginPath();
+          ctx.arc(part.x, part.y, 2, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(156, 163, 175, ${Math.max(0, part.life)})`;
+          ctx.fill();
+        }
+      }
+
+      function spawnPacket(routeData) {
+        const rect = canvas.getBoundingClientRect();
+        packets.push({
+          x: 16,
+          y: Math.random() * rect.height,
+          phase: "to_lb",
+          route: routeData,
+          speed: 3 + Math.random() * 1.8,
+          color: getPacketColor(routeData),
+        });
+
+        if (packets.length > 240) {
+          packets.shift();
+        }
+      }
+
+      function spawnMigrationBursts(changedSamples) {
+        changedSamples.slice(0, 40).forEach((sample) => {
+          migrations.push({
+            from: sample.from,
+            to: sample.to,
+            hash: sample.hash,
+            progress: 0,
+            speed: 0.01 + Math.random() * 0.02,
+          });
+        });
+      }
+
+      function movePointTowards(point, targetX, targetY, speed) {
+        const dx = targetX - point.x;
+        const dy = targetY - point.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist <= speed || dist === 0) {
+          point.x = targetX;
+          point.y = targetY;
+          return true;
+        }
+        point.x += (dx / dist) * speed;
+        point.y += (dy / dist) * speed;
+        return false;
+      }
+
+      function drawPackets() {
+        for (let i = packets.length - 1; i >= 0; i--) {
+          const packet = packets[i];
+          const routeMode = packet.route.mode || currentMode;
+
+          if (packet.phase === "to_lb") {
+            const reached = movePointTowards(
+              packet,
+              lbNode.x - lbNode.w / 2,
+              lbNode.y,
+              packet.speed,
+            );
+            if (reached) {
+              packet.phase = packet.route.target ? "to_server" : "drop";
+            }
+          } else if (packet.phase === "to_server") {
+            const targetPoint =
+              routeMode === MODES.CONSISTENT
+                ? findServerPoint(packet.route.target, packet.route.requestHash)
+                : (() => {
+                    const targetNode = serverNodes.find(
+                      (node) => node.id === packet.route.target,
+                    );
+                    return targetNode
+                      ? { x: targetNode.x - targetNode.w / 2, y: targetNode.y }
+                      : null;
+                  })();
+
+            if (!targetPoint) {
+              packet.phase = "drop";
+            } else {
+              const reachedServer = movePointTowards(
+                packet,
+                targetPoint.x,
+                targetPoint.y,
+                packet.speed,
+              );
+              if (reachedServer) {
+                if (packet.route.dropped) {
+                  triggerDropImpact(
+                    packet.route.target,
+                    targetPoint.x,
+                    targetPoint.y,
+                  );
                 }
-            });
+                packets.splice(i, 1);
+                continue;
+              }
+            }
+          }
+
+          if (packet.phase === "drop") {
+            packets.splice(i, 1);
+            continue;
+          }
+
+          ctx.beginPath();
+          ctx.arc(packet.x, packet.y, 3.2, 0, Math.PI * 2);
+          ctx.fillStyle = packet.color;
+          ctx.fill();
+
+          ctx.shadowBlur = 10;
+          ctx.shadowColor = packet.color;
+
+          if (packet.route.message) {
+            ctx.font = "800 18px Outfit";
+            ctx.textAlign = "center";
+            ctx.fillStyle = "white";
+            ctx.fillText(packet.route.message, packet.x, packet.y - 14);
+          }
+        }
+        ctx.shadowBlur = 0;
+      }
+
+      function drawMigrations() {
+        for (let i = migrations.length - 1; i >= 0; i--) {
+          const migration = migrations[i];
+          const source = findServerPoint(migration.from, migration.hash);
+          const destination = findServerPoint(migration.to, migration.hash);
+
+          if (!source || !destination) {
+            migrations.splice(i, 1);
+            continue;
+          }
+
+          migration.progress += migration.speed;
+          if (migration.progress >= 1) {
+            migrations.splice(i, 1);
+            continue;
+          }
+
+          const x = source.x + (destination.x - source.x) * migration.progress;
+          const y = source.y + (destination.y - source.y) * migration.progress;
+
+          ctx.strokeStyle = "rgba(239, 68, 68, 0.58)";
+          ctx.lineWidth = 1.4;
+          ctx.beginPath();
+          ctx.moveTo(source.x, source.y);
+          ctx.lineTo(x, y);
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.arc(x, y, 3.4, 0, Math.PI * 2);
+          ctx.fillStyle = "#ef4444";
+          ctx.fill();
+        }
+      }
+
+      function drawCanvasHUD() {
+        ctx.fillStyle = "rgba(226, 232, 240, 0.9)";
+        ctx.font = "700 13px Outfit";
+        ctx.textAlign = "left";
+        ctx.fillText(`Mode: ${modeLabel()}`, 16, 24);
+
+        const rehash = Number(hashMapState.rehashImpact || 0);
+        if (rehash > 0) {
+          ctx.fillStyle = "rgba(239, 68, 68, 0.95)";
+          ctx.fillText(`Rehash Impact: ${rehash.toFixed(1)}% affected`, 16, 44);
         }
 
-        function renderServerList() {
-            serverListEl.innerHTML = '';
-            servers.forEach(srv => {
-                const div = document.createElement('div');
-                div.className = 'server-item';
-                div.innerHTML = `
+        ctx.fillStyle = "#60a5fa";
+        ctx.fillRect(16, 58, 10, 10);
+        ctx.fillStyle = "#cbd5e1";
+        ctx.font = "600 11px Outfit";
+        ctx.fillText("Normal routing", 30, 67);
+
+        ctx.fillStyle = "#ef4444";
+        ctx.fillRect(120, 58, 10, 10);
+        ctx.fillStyle = "#cbd5e1";
+        ctx.fillText("Rehash migration", 136, 67);
+
+        ctx.fillStyle = "#9ca3af";
+        ctx.fillRect(250, 58, 10, 10);
+        ctx.fillStyle = "#cbd5e1";
+        ctx.fillText("Dropped packet", 266, 67);
+      }
+
+      // Socket Events
+      socket.on("initial_state", (data) => {
+        currentMode = data.mode || MODES.STATELESS;
+        statelessPolicy =
+          data.statelessPolicy || STATELESS_POLICIES.L4_ROUND_ROBIN;
+        servers = data.servers || [];
+        if (data.hashMap) {
+          hashMapState = data.hashMap;
+        }
+        if (data.virtualNodesPerServer) {
+          hashMapState.virtualNodesPerServer = normalizeVirtualNodeCount(
+            data.virtualNodesPerServer,
+          );
+        }
+        if (data.metrics) {
+          metricsState = data.metrics;
+        }
+        if (data.lastRehash) {
+          lastRehashEvent = data.lastRehash;
+        }
+        ringFlashUntil = 0;
+        ringFlashRanges = [];
+        syncVirtualNodeInput(true);
+        updateModeUI();
+        updateMetricsUI();
+
+        if (data.qrCode) qrCodeImg.src = data.qrCode;
+        if (data.mobileUrl) {
+          mobileLinkA.href = data.mobileUrl;
+          mobileLinkA.textContent = data.mobileUrl;
+        }
+
+        resizeCanvas(); // Trigger positions
+        renderServerList();
+      });
+
+      socket.on("url_updated", (data) => {
+        qrCodeImg.src = data.qrCode;
+        mobileLinkA.href = data.url;
+        mobileLinkA.textContent = data.url;
+      });
+
+      socket.on("mode_changed", (payload) => {
+        if (typeof payload === "string") {
+          if (
+            payload === STATELESS_POLICIES.L4_ROUND_ROBIN ||
+            payload === STATELESS_POLICIES.L4_LEAST_CONN ||
+            payload === STATELESS_POLICIES.L7_PATH
+          ) {
+            currentMode = MODES.STATELESS;
+            statelessPolicy = payload;
+          } else if (
+            payload === MODES.STATELESS ||
+            payload === MODES.MOD_N ||
+            payload === MODES.CONSISTENT
+          ) {
+            currentMode = payload;
+          }
+        } else if (payload) {
+          currentMode = payload.mode || currentMode;
+          statelessPolicy = payload.statelessPolicy || statelessPolicy;
+        }
+        updateModeUI();
+        updateLayoutGeometry();
+      });
+
+      socket.on("servers_updated", (newServers) => {
+        servers = newServers;
+        updateLayoutGeometry();
+        renderServerList();
+      });
+
+      socket.on("hash_map_update", (hashMap) => {
+        hashMapState = {
+          ...hashMap,
+          affectedRanges: [],
+        };
+        syncVirtualNodeInput();
+        updateLayoutGeometry();
+      });
+
+      socket.on("virtual_nodes_changed", (payload) => {
+        if (!payload) return;
+        if (Object.prototype.hasOwnProperty.call(payload, "k")) {
+          hashMapState.virtualNodesPerServer = normalizeVirtualNodeCount(
+            payload.k,
+          );
+          syncVirtualNodeInput(true);
+          updateLayoutGeometry();
+        }
+      });
+
+      socket.on("rehash_event", (rehashData) => {
+        lastRehashEvent = rehashData;
+        hashMapState.rehashImpact = Number(rehashData.affectedPercent) || 0;
+        spawnMigrationBursts(rehashData.changedSamples || []);
+
+        if (
+          rehashData &&
+          (rehashData.reason === "server_added" ||
+            rehashData.reason === "server_removed")
+        ) {
+          const movedHashes = (rehashData.changedSamples || []).map((item) =>
+            Number(item.hash),
+          );
+          ringFlashRanges = movedHashes.length
+            ? buildSpotRangesFromHashes(movedHashes, 1.1)
+            : rehashData.affectedRanges || [];
+          ringFlashUntil = Date.now() + RING_FLASH_MS;
+        }
+
+        rehashImpactLabelEl.textContent = `Rehash Impact: ${(Number(rehashData.affectedPercent) || 0).toFixed(1)}% affected`;
+      });
+
+      socket.on("metrics_update", (newMetrics) => {
+        metricsState = newMetrics;
+        updateMetricsUI();
+      });
+
+      socket.on("route_update", (data) => {
+        if (data.servers) {
+          servers = data.servers;
+          updateLayoutGeometry();
+          renderServerList();
+        }
+        spawnPacket(data);
+      });
+
+      socket.on("latency_update", (data) => {
+        if (data && data.migrated && data.mode === currentMode) {
+          hashMapState.rehashImpact = Math.max(
+            Number(hashMapState.rehashImpact) || 0,
+            0,
+          );
+        }
+      });
+
+      // UI Interactions
+      modeOptions.forEach((opt) => {
+        opt.addEventListener("click", () => {
+          const mode = opt.getAttribute("data-mode");
+          socket.emit("switch_mode", { mode });
+        });
+      });
+
+      policyOptions.forEach((opt) => {
+        opt.addEventListener("click", () => {
+          const policy = opt.getAttribute("data-policy");
+          socket.emit("update_stateless_policy", { policy });
+        });
+      });
+
+      if (applyVnodeBtn) {
+        applyVnodeBtn.addEventListener("click", submitVirtualNodeCount);
+      }
+
+      if (vnodeCountInputEl) {
+        vnodeCountInputEl.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            submitVirtualNodeCount();
+          }
+        });
+      }
+
+      function renderServerList() {
+        serverListEl.innerHTML = "";
+        servers.forEach((srv) => {
+          const processingDelay = Math.max(
+            100,
+            Math.min(30000, Math.round(Number(srv.processingDelayMs) || 800)),
+          );
+          const div = document.createElement("div");
+          div.className = "server-item";
+          div.innerHTML = `
                     <div class="server-info">
                         <h4>${srv.name}</h4>
-                        <span>${srv.path}</span>
+                        <span>[ ${srv.path} ]</span>
                         <div class="srv-metrics">
-
+                            <small style="color:#60a5fa; font-size:0.75rem;">Requests: ${Number(srv.count) || 0}</small>
+                            <small style="color:#f87171; font-size:0.75rem; margin-left:0.5rem;">Dropped: ${Number(srv.droppedCount) || 0}</small>
+                            <small style="color:#94a3b8; font-size:0.75rem; margin-left:0.5rem;">Active: ${Number(srv.activeConnections) || 0}</small>
+                        </div>
+                        <div class="srv-delay-control">
+                            <label for="srv-delay-${srv.id}">Processing Time (ms)</label>
+                            <div class="srv-delay-input-wrap">
+                                <input
+                                    id="srv-delay-${srv.id}"
+                                    class="srv-delay-input"
+                                    type="number"
+                                    min="100"
+                                    max="30000"
+                                    step="100"
+                                    value="${processingDelay}"
+                                    onkeydown="if(event.key==='Enter'){event.preventDefault();updateServerProcessingTime('${srv.id}');}"
+                                />
+                                <button class="primary srv-delay-apply" onclick="updateServerProcessingTime('${srv.id}')">Set</button>
+                            </div>
                         </div>
                     </div>
                     <button class="delete-btn" onclick="removeServer('${srv.id}')">✕</button>
                 `;
-                serverListEl.appendChild(div);
-            });
-        }
-
-        window.removeServer = function(id) {
-            const newServers = servers.filter(s => s.id !== id);
-            socket.emit('update_servers', newServers);
-        };
-
-        window.resetCounters = function() {
-            socket.emit('reset_counters');
-        };
-
-        window.updatePublicUrl = function() {
-            const url = document.getElementById('public-url-input').value.trim();
-            if(url.length > 0) socket.emit('set_public_url', url);
-        };
-
-        addServerForm.addEventListener('submit', (e) => {
-            e.preventDefault();
-            const name = document.getElementById('srv-name').value;
-            const path = document.getElementById('srv-path').value;
-            const newId = 'srv_' + Math.random().toString(36).substr(2, 6);
-            
-            servers.push({ id: newId, name, path, });
-            socket.emit('update_servers', servers);
-            
-            document.getElementById('srv-name').value = '';
+          serverListEl.appendChild(div);
         });
+      }
 
-        function animate() {
-            const rect = canvas.getBoundingClientRect();
-            ctx.clearRect(0, 0, rect.width, rect.height);
+      window.updateServerProcessingTime = function (id) {
+        const inputEl = document.getElementById(`srv-delay-${id}`);
+        if (!inputEl) return;
 
-            drawHashRing();
-            drawTopologyNodes();
-            drawPackets();
-            drawMigrations();
-            drawCanvasHUD();
+        const parsed = Number(inputEl.value);
+        if (!Number.isFinite(parsed)) return;
 
-            requestAnimationFrame(animate);
-        }
+        const normalized = Math.max(100, Math.min(30000, Math.round(parsed)));
+        inputEl.value = String(normalized);
 
-        resizeCanvas();
-        animate();
+        socket.emit("update_server_processing_time", {
+          id,
+          processingDelayMs: normalized,
+        });
+      };
 
+      window.removeServer = function (id) {
+        const newServers = servers.filter((s) => s.id !== id);
+        socket.emit("update_servers", newServers);
+      };
+
+      window.resetCounters = function () {
+        socket.emit("reset_counters");
+      };
+
+      window.updatePublicUrl = function () {
+        const url = document.getElementById("public-url-input").value.trim();
+        if (url.length > 0) socket.emit("set_public_url", url);
+      };
+
+      addServerForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const name = document.getElementById("srv-name").value;
+        const path = document.getElementById("srv-path").value;
+        const newId = "srv_" + Math.random().toString(36).substr(2, 6);
+
+        servers.push({ id: newId, name, path });
+        socket.emit("update_servers", servers);
+
+        document.getElementById("srv-name").value = "";
+      });
+
+      function animate() {
+        const rect = canvas.getBoundingClientRect();
+        ctx.clearRect(0, 0, rect.width, rect.height);
+
+        drawHashRing();
+        drawTopologyNodes();
+        drawPackets();
+        drawDropBursts();
+        drawMigrations();
+        drawCanvasHUD();
+
+        requestAnimationFrame(animate);
+      }
+
+      resizeCanvas();
+      animate();
     </script>
-</body>
+  </body>
 </html>
